@@ -48,57 +48,61 @@ void ST7789_kbv::pushCommand(uint16_t cmd, uint8_t * block, int8_t N)
     FLUSH_IDLE;
 }
 
-uint8_t ST7789_kbv::readReg8(uint8_t reg, uint8_t dat)
+static uint32_t readRegister(uint8_t reg)
 {
-    uint8_t ret;
+    uint32_t ret;
+	uint8_t bits = 8;
+	if (reg == 4) bits = 25;
+	if (reg == 9) bits = 33;
     CS_ACTIVE;
     WriteCmd(reg);
-    ret = xchg8(dat);           //only safe to read @ SCK=16MHz
-    FLUSH_IDLE;
-    return ret;
-}
-
-uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx)         //this is the same as Adafruit_ILI9341
-{
-    readReg8(0xD9, 0x10 | idx);
-    uint16_t ret = readReg8(reg, 0xFF);
-    readReg8(0xD9, 0x00);
-    return ret;
+    CD_DATA;                    //
+	SDIO_INMODE();
+    ret = readbits(bits);
+    CS_IDLE;
+	SDIO_OUTMODE();
+    return ret;	
 }
 
 uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
 {
     if (!done_reset) reset();
-    return (readcommand8(0xD3, 2) << 8) | readcommand8(0xD3, 3);
+//    uint32_t ret = readRegister(4);
+//	return ret == 0x858552 ? 0x7789 : ret;
+    return 0x7789;
 }
 
-uint16_t ST7789_kbv::readReg(uint16_t reg, uint8_t idx)     //note that this reads pairs of data bytes
+uint16_t ST7789_kbv::readReg(uint16_t reg, uint8_t idx)
 {
-    uint8_t h, l;
-    idx <<= 1;
-    h = readcommand8(reg, idx);
-    l = readcommand8(reg, idx + 1);
-    return (h << 8) | l;
+    uint32_t ret = readRegister(reg);
+	if (idx == 1) ret >>= 16;
+	return ret;
 }
 
 int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, int16_t h)
 {
-    uint8_t r, g, b;
-      int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
-    setAddrWindow(x, y, x + w - 1, y + h - 1);
-    CS_ACTIVE;
-    WriteCmd(0x2E);
+	uint8_t r, g, b;
+	int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
+	uint8_t colmod = 0x66;
+	pushCommand(0x3A, &colmod, 1);
+	setAddrWindow(x, y, x + w - 1, y + h - 1);
+	CS_ACTIVE;
+	WriteCmd(0x2E);
+	CD_DATA;
+	SDIO_INMODE();        // do this while CS is Active
 
-    // needs 1 dummy read
-    r = xchg8(0xFF);
-    while (n-- > 0) {
-        r = xchg8(0xFF);
-        g = xchg8(0xFF);
-        b = xchg8(0xFF);
-        *block++ = color565(r, g, b);
-    }
-    FLUSH_IDLE;
+	r = readbits(8 + 1);	  //(8) for ILI9163, (9) for ST7735
+	while (n-- > 0) {
+		r = readbits(8);
+		g = readbits(8);
+		b = readbits(8);
+		*block++ = color565(r, g, b);
+	}
+	CS_IDLE;
+	SDIO_OUTMODE();      //do this when CS is Idle
     setAddrWindow(0, 0, width() - 1, height() - 1);
+	colmod = 0x05;
+	pushCommand(0x3A, &colmod, 1);
     return 0;
 }
 
@@ -121,6 +125,9 @@ void ST7789_kbv::setRotation(uint8_t r)
         break;
     }
     pushCommand(0x36, &mac, 1);
+    uint8_t d[3] = {0x27, 0x00, 0x10};
+    if (rotation & 2) d[1] = 0x0A;
+	pushCommand(0xE4, d, 3);
 }
 
 void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)

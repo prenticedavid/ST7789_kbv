@@ -42,7 +42,6 @@ public:
 	virtual void     setRotation(uint8_t r);
 	virtual void     invertDisplay(boolean i);
 
-	uint8_t readcommand8(uint8_t reg, uint8_t idx = 0);         //this is the same as Adafruit_ILI9341
 	uint16_t readReg(uint16_t reg, uint8_t idx = 0);            //note that this reads pairs of data bytes
 	int16_t  readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w, int16_t h);
 	uint16_t readPixel(int16_t x, int16_t y) { uint16_t color; readGRAM(x, y, &color, 1, 1); return color; }
