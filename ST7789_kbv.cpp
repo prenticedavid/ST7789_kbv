@@ -84,6 +84,7 @@ int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, 
 	uint8_t r, g, b;
 	int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
 	uint8_t colmod = 0x66;
+	return 1;             // just avoid READ for now
 	pushCommand(0x3A, &colmod, 1);
 	setAddrWindow(x, y, x + w - 1, y + h - 1);
 	CS_ACTIVE;
