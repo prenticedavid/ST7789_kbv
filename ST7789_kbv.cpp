@@ -2,28 +2,101 @@
 //to do: read ID at faster SPI speeds
 
 #include "ST7789_kbv.h"
+#include <SPI.h>
 
-#if defined(__MBED__)
-#include "serial_mbed.h"
+#define USE_9BIT  0
 
-ST7789_kbv::ST7789_kbv(PinName CS, PinName RS, PinName RST)
-    : _lcd_pin_rs(RS), _lcd_pin_cs(CS), _lcd_pin_reset(RST), _spi(D11, D12, D13), Adafruit_GFX(240, 240)
+#define RESET_PIN 8
+#define CD_PIN    9
+#define CS_PIN    7
+#define MOSI_PIN  11
+#define SCK_PIN   13
+#define CD_COMMAND digitalWrite(CD_PIN, LOW)
+#define CD_DATA    digitalWrite(CD_PIN, HIGH)
+#define CD_OUTPUT  pinMode(CD_PIN, OUTPUT)
+#define CS_ACTIVE  digitalWrite(CS_PIN, LOW)
+#define CS_IDLE    digitalWrite(CS_PIN, HIGH)
+#define CS_OUTPUT  pinMode(CS_PIN, OUTPUT)
+#define RESET_ACTIVE  digitalWrite(RESET_PIN, LOW)
+#define RESET_IDLE    digitalWrite(RESET_PIN, HIGH)
+#define RESET_OUTPUT  pinMode(RESET_PIN, OUTPUT)
+#define MOSI_LO    digitalWrite(MOSI_PIN, LOW)
+#define MOSI_HI    digitalWrite(MOSI_PIN, HIGH)
+#define MOSI_OUTPUT pinMode(MOSI_PIN, OUTPUT)
+#define SCK_LO     digitalWrite(SCK_PIN, LOW)
+#define SCK_HI     digitalWrite(SCK_PIN, HIGH)
+#define SCK_OUTPUT pinMode(SCK_PIN, OUTPUT)
+
+#define FLUSH_IDLE CS_IDLE
+static SPISettings settings(8000000, MSBFIRST, SPI_MODE3);
+
+static inline void write9(uint8_t c, uint8_t dc)
 {
-}
-
-#elif defined(__CC_ARM) || defined(__CROSSWORKS_ARM)
-#include "serial_keil.h"
-
-ST7789_kbv::ST7789_kbv():Adafruit_GFX(240, 240)
-{
-}
+#if USE_9BIT == 0
+    if (dc) CD_DATA;
+    else CD_COMMAND;
+    SPI.transfer(c);
 #else
-#include "serial_kbv.h"
+    if (dc) MOSI_HI;
+    else MOSI_LO;
+    SCK_LO;
+    SCK_HI;
+    for (int i = 0; i < 8; i++) {
+        if (c & 0x80) MOSI_HI;
+        else MOSI_LO;
+        SCK_LO;
+        SCK_HI;
+        c <<= 1;
+    }
+#endif
+}
 
-ST7789_kbv::ST7789_kbv():Adafruit_GFX(240, 240)
+static void INIT(void)
+{
+    CS_IDLE;
+    RESET_IDLE;
+    CS_OUTPUT;
+    RESET_OUTPUT;
+    CD_OUTPUT;
+    MOSI_OUTPUT;
+    SCK_OUTPUT;
+    SCK_HI;
+#if USE_9BIT == 0
+    SPI.begin();
+    SPI.beginTransaction(settings);
+#endif
+}
+
+static inline void WriteCmd(uint8_t c)
+{
+    CS_ACTIVE;
+    write9(c, 0);
+}
+
+static inline void WriteDat(uint8_t c)
+{
+    write9(c, 1);
+}
+
+static inline void write16(uint16_t x)
+{
+    WriteDat(x >> 8);
+    WriteDat(x & 0xFF);
+}
+
+static inline void writeColor(uint16_t x, uint32_t N)
+{
+    // alter this function for 666 format controllers
+    uint8_t h = (x >> 8), l = x;
+    while (N--) {
+        WriteDat(h);
+        WriteDat(l);
+    }
+}
+
+ST7789_kbv::ST7789_kbv(): Adafruit_GFX(240, 240)
 {
 }
-#endif
 
 static uint8_t done_reset;
 
@@ -31,80 +104,35 @@ void ST7789_kbv::reset(void)
 {
     done_reset = 1;
     INIT();
-    CS_IDLE;
     RESET_IDLE;
-    wait_ms(50);
+    delay(50);
     RESET_ACTIVE;
-    wait_ms(100);
+    delay(100);
     RESET_IDLE;
-    wait_ms(100);
+    delay(100);
 }
 
 void ST7789_kbv::pushCommand(uint16_t cmd, uint8_t * block, int8_t N)
 {
-    CS_ACTIVE;
     WriteCmd(cmd);
-    write8_block(block, N);
+    while (N--) WriteDat(*block++);
     FLUSH_IDLE;
-}
-
-static uint32_t readRegister(uint8_t reg)
-{
-    uint32_t ret;
-	uint8_t bits = 8;
-	if (reg == 4) bits = 25;
-	if (reg == 9) bits = 33;
-    CS_ACTIVE;
-    WriteCmd(reg);
-    CD_DATA;                    //
-	SDIO_INMODE();
-    ret = readbits(bits);
-    CS_IDLE;
-	SDIO_OUTMODE();
-    return ret;	
 }
 
 uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
 {
     if (!done_reset) reset();
-//    uint32_t ret = readRegister(4);
-//	return ret == 0x858552 ? 0x7789 : ret;
     return 0x7789;
 }
 
 uint16_t ST7789_kbv::readReg(uint16_t reg, uint8_t idx)
 {
-    uint32_t ret = readRegister(reg);
-	if (idx == 1) ret >>= 16;
-	return ret;
+    return 0x1234;
 }
 
 int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, int16_t h)
 {
-	uint8_t r, g, b;
-	int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
-	uint8_t colmod = 0x66;
-	return 1;             // just avoid READ for now
-	pushCommand(0x3A, &colmod, 1);
-	setAddrWindow(x, y, x + w - 1, y + h - 1);
-	CS_ACTIVE;
-	WriteCmd(0x2E);
-	CD_DATA;
-	SDIO_INMODE();        // do this while CS is Active
-
-	r = readbits(8 + 1);	  //(8) for ILI9163, (9) for ST7735
-	while (n-- > 0) {
-		r = readbits(8);
-		g = readbits(8);
-		b = readbits(8);
-		*block++ = color565(r, g, b);
-	}
-	CS_IDLE;
-	SDIO_OUTMODE();      //do this when CS is Idle
-    setAddrWindow(0, 0, width() - 1, height() - 1);
-	colmod = 0x05;
-	pushCommand(0x3A, &colmod, 1);
-    return 0;
+    return 1;
 }
 
 void ST7789_kbv::setRotation(uint8_t r)
@@ -112,23 +140,23 @@ void ST7789_kbv::setRotation(uint8_t r)
     uint8_t mac = 0x00;
     Adafruit_GFX::setRotation(r & 3);
     switch (rotation) {
-    case 0:
-        mac = 0x08;
-        break;
-    case 1:        //LANDSCAPE 90 degrees
-        mac = 0x68;
-        break;
-    case 2:
-        mac = 0xD8;
-        break;
-    case 3:
-        mac = 0xB8;
-        break;
+        case 0:
+            mac = 0x08;
+            break;
+        case 1:        //LANDSCAPE 90 degrees
+            mac = 0x68;
+            break;
+        case 2:
+            mac = 0xD8;
+            break;
+        case 3:
+            mac = 0xB8;
+            break;
     }
     pushCommand(0x36, &mac, 1);
-    uint8_t d[3] = {0x27, 0x00, 0x10};
-    if (rotation & 2) d[1] = 0x0A;
-	pushCommand(0xE4, d, 3);
+    uint8_t d[3] = {0x27, 0x00, 0x10}; //regular 240x320
+    if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A;     //fix GateScan on 240x240 panel
+    pushCommand(0xE4, d, 3);
 }
 
 void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
@@ -142,7 +170,7 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     WriteCmd(0x2B);
     write16(y);
     WriteCmd(0x2C);
-    write16(color);
+    writeColor(color, 1);
     FLUSH_IDLE;
 }
 
@@ -182,11 +210,14 @@ void ST7789_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t c
         end = height();
     h = end - y;
     setAddrWindow(x, y, x + w - 1, y + h - 1);
-    CS_ACTIVE;
     WriteCmd(0x2C);
-    if (h > w) { end = h; h = w; w = end; }
+    if (h > w) {
+        end = h;
+        h = w;
+        w = end;
+    }
     while (h-- > 0) {
-        write16_N(color, w);
+        writeColor(color, w);
     }
     FLUSH_IDLE;
     setAddrWindow(0, 0, width() - 1, height() - 1);
@@ -208,9 +239,10 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
             h = (*block++);
             l = (*block++);
         }
-        if (isbigend) xchg8(h);
-        xchg8(l);
-        if (!isbigend) xchg8(h);
+        uint16_t color;
+        if (isbigend) color = h << 8 | l;
+        else color = l << 8 | h;
+        writeColor(color, 1);
     }
 }
 
@@ -239,85 +271,85 @@ void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
     vsp = top + offset;  // vertical start position
     if (offset < 0)
         vsp += scrollines;          //keep in unsigned range
-    CS_ACTIVE;
     WriteCmd( 0x33);
     write16(top);        //TOP
     write16(scrollines); //VSA
     write16(bfa);        //BFA
 
-    WriteCmd(0x37)
+    WriteCmd(0x37);
     write16(vsp);        //VLSP
     FLUSH_IDLE;
 }
 
 #define TFTLCD_DELAY8 0xFF
-        static const uint8_t ST7789_regValues_Adafruit[] PROGMEM = {
-            0x01, 0,            //Soft Reset
-            TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
-            0x28, 0,            //Display Off
-            0x3A, 1, 0x55,      //Pixel read=565, write=565.
-//            (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
-//            (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
-//            (0xBB), 1, 0x2B,    //VCOMS: VCOM setting VCOM=1.175 [20] VCOM=0.9
-            (0xC0), 1, 0x1C,    //LCMCTRL: LCM Control [2C] was=14
-//            (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
-//            (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
-//            (0xC3), 1, 0x11,    //VRHS: VRH Set VAP=4.4, VAN=-4.4 [0B]
-//            (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
-//            (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
-//            (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
-            (0xE0), 14, 0xD0, 0x00, 0x05, 0x0E, 0x15, 0x0D, 0x37, 0x43, 0x47, 0x09, 0x15, 0x12, 0x16, 0x19,     //PVGAMCTRL: Positive Voltage Gamma control        
-            (0xE1), 14, 0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19,     //NVGAMCTRL: Negative Voltage Gamma control
-			0x11, 0,            //Sleep Out
-            TFTLCD_DELAY8, 150,
-            0x29, 0,            //Display On
-        };
-        static const uint8_t ST7789_regValues[] PROGMEM = {
-            0x01, 0,            //Soft Reset
-            TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
-            0x28, 0,            //Display Off
-            0x3A, 1, 0x55,      //Pixel read=565, write=565.
-            (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
-            (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
-            (0xBB), 1, 0x2B,    //VCOMS: VCOM setting VCOM=1.175 [20] VCOM=0.9
-            (0xC0), 1, 0x1C,    //LCMCTRL: LCM Control [2C] was=14
-//            (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
-            (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
-            (0xC3), 1, 0x11,    //VRHS: VRH Set VAP=4.4, VAN=-4.4 [0B]
-            (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
-            (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
-            (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
-            (0xE0), 14, 0xD0, 0x00, 0x05, 0x0E, 0x15, 0x0D, 0x37, 0x43, 0x47, 0x09, 0x15, 0x12, 0x16, 0x19,     //PVGAMCTRL: Positive Voltage Gamma control        
-            (0xE1), 14, 0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19,     //NVGAMCTRL: Negative Voltage Gamma control
-			0x11, 0,            //Sleep Out
-            TFTLCD_DELAY8, 150,
-            0x29, 0,            //Display On
-        };
-        static const uint8_t ST7789_regValues_arcain6[] PROGMEM = {
-            0x01, 0,            //Soft Reset
-            TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
-            0x28, 0,            //Display Off
-            0x3A, 1, 0x55,      //Pixel read=565, write=565.
-            (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
-            (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
-            (0xBB), 1, 0x35,    //VCOMS: VCOM setting VCOM=??? [20] VCOM=0.9
-            (0xC0), 1, 0x2C,    //LCMCTRL: LCM Control [2C]
-            (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
-            (0xC3), 1, 0x13,    //VRHS: VRH Set VAP=???, VAN=-??? [0B]
-            (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
-            (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
-            (0xCA), 1, 0x0F,    //REGSEL2 [0F]
-            (0xC8), 1, 0x08,    //REGSEL1 [08]
-            (0x55), 1, 0x90,    //WRCACE  [00]
-            (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
-            (0xE0), 14, 0xD0, 0x00, 0x06, 0x09, 0x0B, 0x2A, 0x3C, 0x55, 0x4B, 0x08, 0x16, 0x14, 0x19, 0x20,     //PVGAMCTRL: Positive Voltage Gamma control        
-            (0xE1), 14, 0xD0, 0x00, 0x06, 0x09, 0x0B, 0x29, 0x36, 0x54, 0x4B, 0x0D, 0x16, 0x14, 0x21, 0x20,     //NVGAMCTRL: Negative Voltage Gamma control
-			0x11, 0,            //Sleep Out
-            TFTLCD_DELAY8, 150,
-            0x29, 0,            //Display On
-        };
+static const uint8_t ST7789_regValues_Adafruit[] PROGMEM = {
+    0x01, 0,            //Soft Reset
+    TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
+    0x28, 0,            //Display Off
+    0x3A, 1, 0x55,      //Pixel read=565, write=565.
+    //            (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
+    //            (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
+    //            (0xBB), 1, 0x2B,    //VCOMS: VCOM setting VCOM=1.175 [20] VCOM=0.9
+    (0xC0), 1, 0x1C,    //LCMCTRL: LCM Control [2C] was=14
+    //            (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
+    //            (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
+    //            (0xC3), 1, 0x11,    //VRHS: VRH Set VAP=4.4, VAN=-4.4 [0B]
+    //            (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
+    //            (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
+    //            (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
+    (0xE0), 14, 0xD0, 0x00, 0x05, 0x0E, 0x15, 0x0D, 0x37, 0x43, 0x47, 0x09, 0x15, 0x12, 0x16, 0x19,     //PVGAMCTRL: Positive Voltage Gamma control
+    (0xE1), 14, 0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19,     //NVGAMCTRL: Negative Voltage Gamma control
+    0x11, 0,            //Sleep Out
+    TFTLCD_DELAY8, 150,
+    0x29, 0,            //Display On
+};
+static const uint8_t ST7789_regValues[] PROGMEM = {
+    0x01, 0,            //Soft Reset
+    TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
+    0x28, 0,            //Display Off
+    0x3A, 1, 0x55,      //Pixel read=565, write=565.
+    (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
+    (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
+    (0xBB), 1, 0x2B,    //VCOMS: VCOM setting VCOM=1.175 [20] VCOM=0.9
+    (0xC0), 1, 0x1C,    //LCMCTRL: LCM Control [2C] was=14
+    //            (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
+    (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
+    (0xC3), 1, 0x11,    //VRHS: VRH Set VAP=4.4, VAN=-4.4 [0B]
+    (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
+    (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
+    (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
+    (0xE0), 14, 0xD0, 0x00, 0x05, 0x0E, 0x15, 0x0D, 0x37, 0x43, 0x47, 0x09, 0x15, 0x12, 0x16, 0x19,     //PVGAMCTRL: Positive Voltage Gamma control
+    (0xE1), 14, 0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19,     //NVGAMCTRL: Negative Voltage Gamma control
+    0x11, 0,            //Sleep Out
+    TFTLCD_DELAY8, 150,
+    0x29, 0,            //Display On
+};
+static const uint8_t ST7789_regValues_arcain6[] PROGMEM = {
+    0x01, 0,            //Soft Reset
+    TFTLCD_DELAY8, 150,  // .kbv will power up with ONLY reset, sleep out, display on
+    0x28, 0,            //Display Off
+    0x3A, 1, 0x55,      //Pixel read=565, write=565.
+    (0xB2), 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,    //PORCTRK: Porch setting [08 08 00 22 22] PSEN=0 anyway
+    (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
+    (0xBB), 1, 0x35,    //VCOMS: VCOM setting VCOM=??? [20] VCOM=0.9
+    (0xC0), 1, 0x2C,    //LCMCTRL: LCM Control [2C]
+    (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
+    (0xC3), 1, 0x13,    //VRHS: VRH Set VAP=???, VAN=-??? [0B]
+    (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
+    (0xC6), 1, 0x0F,    //FRCTRL2: Frame Rate control in normal mode [0F]
+    (0xCA), 1, 0x0F,    //REGSEL2 [0F]
+    (0xC8), 1, 0x08,    //REGSEL1 [08]
+    (0x55), 1, 0x90,    //WRCACE  [00]
+    (0xD0), 2, 0xA4, 0xA1,      //PWCTRL1: Power Control 1 [A4 A1]
+    (0xE0), 14, 0xD0, 0x00, 0x06, 0x09, 0x0B, 0x2A, 0x3C, 0x55, 0x4B, 0x08, 0x16, 0x14, 0x19, 0x20,     //PVGAMCTRL: Positive Voltage Gamma control
+    (0xE1), 14, 0xD0, 0x00, 0x06, 0x09, 0x0B, 0x29, 0x36, 0x54, 0x4B, 0x0D, 0x16, 0x14, 0x21, 0x20,     //NVGAMCTRL: Negative Voltage Gamma control
+    0x11, 0,            //Sleep Out
+    TFTLCD_DELAY8, 150,
+    0x29, 0,            //Display On
+};
 
-#define tableNNNN ST7789_regValues_Adafruit
+//#define tableNNNN ST7789_regValues_Adafruit
+#define tableNNNN ST7789_regValues
 
 void ST7789_kbv::begin(uint16_t ID)
 {
@@ -332,11 +364,10 @@ void ST7789_kbv::begin(uint16_t ID)
             delay(len);
             len = 0;
         } else {
-            CS_ACTIVE;
             WriteCmd(cmd);
             for (uint8_t d = 0; d < len; d++) {
                 uint8_t x = pgm_read_byte(p++);
-                xchg8(x);
+                WriteDat(x);
             }
             FLUSH_IDLE;
         }
