@@ -6,7 +6,7 @@
 
 #define USE_9BIT  0
 #define USE_SPI   1
-#define USE_ID    0x7789
+#define USE_ID    0x9341
 
 #if defined(ESP32)
 #define RESET_PIN 12
@@ -14,10 +14,20 @@
 #define CS_PIN    4 //5 //4
 #define MOSI_PIN  23
 #define SCK_PIN   18
+#elif defined(ESP8266)
+#define RESET_PIN D8
+#define CD_PIN    D9
+#define CS_PIN    D10
+#define MOSI_PIN  D11
+#define SCK_PIN   D13
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
-#define CS_PIN    10 //7
+#if USE_ID == 0x7789
+#define CS_PIN    7
+#else
+#define CS_PIN    10
+#endif
 #define MOSI_PIN  11
 #define SCK_PIN   13
 #endif
@@ -239,10 +249,10 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     CS_ACTIVE;
     WriteCmd(0x2A);
     write16(x);
-    write16(x);
+//    write16(x);
     WriteCmd(0x2B);
     write16(y);
-    write16(y);
+//    write16(y);
     WriteCmd(0x2C);
     writeColor(color, 1);
     FLUSH_IDLE;
@@ -302,7 +312,8 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
     uint8_t h, l;
     bool isconst = flags & 1;
     bool isbigend = (flags & 2) != 0;
-    if (first) {
+    CS_ACTIVE;
+	if (first) {
         WriteCmd(cmd);
     }
     while (n-- > 0) {
@@ -314,10 +325,11 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
             l = (*block++);
         }
         uint16_t color;
-        if (isbigend) color = h << 8 | l;
-        else color = l << 8 | h;
+        if (isbigend) color = (h << 8) | l;
+        else color = (l << 8) | h;
         writeColor(color, 1);
     }
+	FLUSH_IDLE;
 }
 
 void ST7789_kbv::pushColors(uint16_t * block, int16_t n, bool first)
