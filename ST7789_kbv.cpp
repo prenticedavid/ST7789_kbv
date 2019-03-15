@@ -6,7 +6,7 @@
 
 #define USE_9BIT  0
 #define USE_SPI   1
-#define USE_ID    0x7789
+#define USE_ID    0x7735
 
 #if defined(ESP32)
 #define RESET_PIN 12
