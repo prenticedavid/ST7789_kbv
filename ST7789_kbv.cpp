@@ -23,7 +23,7 @@
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
-#if USE_ID == 0x7789
+#ifdef USE_NO_CS
 #define CS_PIN    7
 #else
 #define CS_PIN    10
@@ -114,6 +114,9 @@ static inline void write9(uint8_t c, uint8_t dc)
         SCK_HI;
         c <<= 1;
     }
+#endif
+#if !USE_9BIT
+    CD_DATA; //.kbv
 #endif
 }
 
@@ -334,6 +337,15 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
 	if (first) {
         WriteCmd(cmd);
     }
+#if USE_666 == 0
+    if (!isconst) {
+        uint16_t *block16 = (uint16_t*)block;
+        int i = n;
+        if (!isbigend) while (i--) { uint16_t color = *block16; *block16++ = (color >> 8)|(color << 8); }
+        CD_DATA;
+        SPI.transfer(block, n * 2);
+    } else
+#endif
     while (n-- > 0) {
         if (isconst) {
             h = pgm_read_byte(block++);
