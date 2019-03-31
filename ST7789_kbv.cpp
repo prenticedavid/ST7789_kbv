@@ -6,31 +6,44 @@
 
 #define USE_9BIT  0
 #define USE_SPI   1
+#define USE_666   0       //565 or 666
 #define USE_ID    0x7735
 
 #if defined(ESP32)
 #define RESET_PIN 12
 #define CD_PIN    13
-#define CS_PIN    4 //5 //4
+#define CS_PIN    4
+#define NO_CS_PIN 14
 #define MOSI_PIN  23
 #define SCK_PIN   18
 #elif defined(ESP8266)
 #define RESET_PIN D8
 #define CD_PIN    D9
 #define CS_PIN    D10
+#define NO_CS_PIN D7
 #define MOSI_PIN  D11
 #define SCK_PIN   D13
+#elif defined(ARDUINO_BLUEPILL_F103C8) || defined(ARDUINO_GENERIC_STM32F103C) //MY_BLUEPILL
+#define RESET_PIN PA9
+#define CD_PIN    PA10
+#define CS_PIN    PB12
+#define NO_CS_PIN PA3
+#define MOSI_PIN  PB15
+#define SCK_PIN   PB13
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
-#ifdef USE_NO_CS
-#define CS_PIN    7
-#else
 #define CS_PIN    10
-#endif
+#define NO_CS_PIN 7
 #define MOSI_PIN  11
 #define SCK_PIN   13
 #endif
+
+#ifdef USE_NO_CS
+#warning USE_NO_CS
+#define CS_PIN    NO_CS_PIN
+#endif
+
 
 #define CD_COMMAND digitalWrite(CD_PIN, LOW)
 #define CD_DATA    digitalWrite(CD_PIN, HIGH)
@@ -49,39 +62,6 @@
 #define SCK_OUTPUT pinMode(SCK_PIN, OUTPUT)
 
 #define FLUSH_IDLE CS_IDLE
-
-#if 0
-#elif USE_ID == 0x7735
-#define tableNNNN table7735S
-#define TFTWIDTH  128
-#define TFTHEIGHT 160
-#define USE_666   0       //565 or 666
-#elif USE_ID == 0x7789
-#define tableNNNN ST7789_regValues
-#define TFTWIDTH  240
-#define TFTHEIGHT 240
-#define USE_666   0       //565 or 666
-#elif USE_ID == 0x9163
-#define tableNNNN table9163C
-#define TFTWIDTH  128
-#define TFTHEIGHT 128
-#define USE_666   0       //565 or 666
-#elif USE_ID == 0x9341
-#define tableNNNN ILI9341_regValues_2_4
-#define TFTWIDTH  240
-#define TFTHEIGHT 320
-#define USE_666   0       //565 or 666
-#elif USE_ID == 0x9481
-#define tableNNNN ILI9481_RGB_regValues
-#define TFTWIDTH  320
-#define TFTHEIGHT 480
-#define USE_666   1       //always 666
-#elif USE_ID == 0x9488
-#define tableNNNN ILI9488_regValues_kbv
-#define TFTWIDTH  320
-#define TFTHEIGHT 480
-#define USE_666   1       //always 666
-#endif
 
 static SPISettings settings(8000000, MSBFIRST, SPI_MODE3); //8MHz is max for Saleae. 12MHz is max for ILI9481
 
@@ -120,19 +100,17 @@ static inline void write9(uint8_t c, uint8_t dc)
 #endif
 }
 
-static void INIT(void)
+static inline void write_data_block(uint8_t *buf, int n)
 {
-    CS_IDLE;
-    RESET_IDLE;
-    CS_OUTPUT;
-    RESET_OUTPUT;
-    CD_OUTPUT;
-    MOSI_OUTPUT;
-    SCK_OUTPUT;
-    SCK_HI;
-#if USE_SPI
-    SPI.begin();
-    SPI.beginTransaction(settings);
+#if USE_SPI && !USE_9BIT
+    CD_DATA;
+#if defined(__STM32F1__)  //weird maple
+    SPI.write(buf, n);
+#else
+    SPI.transfer(buf, n);
+#endif
+#else
+    while (n--) write9(*buf++, 1);
 #endif
 }
 
@@ -145,6 +123,23 @@ static inline void WriteCmd(uint8_t c)
 static inline void WriteDat(uint8_t c)
 {
     write9(c, 1);
+}
+
+static void INIT(void)
+{
+    CS_IDLE;
+    RESET_IDLE;
+    CS_OUTPUT;
+    RESET_OUTPUT;
+    CD_OUTPUT;
+    CD_DATA;
+    MOSI_OUTPUT;
+    SCK_OUTPUT;
+    SCK_HI;
+#if USE_SPI
+    SPI.begin();
+    SPI.beginTransaction(settings);
+#endif
 }
 
 static inline void write16(uint16_t x)
@@ -251,11 +246,11 @@ void ST7789_kbv::setRotation(uint8_t r)
     }
     mac ^= _lcd_xor;
     pushCommand(0x36, &mac, 1);
-#if USE_ID == 0x7789
-    uint8_t d[3] = {0x27, 0x00, 0x10}; //regular 240x320
-    if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A;     //fix GateScan on 240x240 panel
-    pushCommand(0xE4, d, 3);
-#endif
+    if (_lcd_ID == 0x7789) {
+        uint8_t d[3] = {0x27, 0x00, 0x10}; //regular 240x320
+        if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A;     //fix GateScan on 240x240 panel
+//        pushCommand(0xE4, d, 3);   //.kbv fix later
+    }
 }
 
 void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
@@ -268,10 +263,8 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     CS_ACTIVE;
     WriteCmd(0x2A);
     write16(x);
-//    write16(x);
     WriteCmd(0x2B);
     write16(y);
-//    write16(y);
     WriteCmd(0x2C);
     writeColor(color, 1);
     FLUSH_IDLE;
@@ -342,8 +335,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
         uint16_t *block16 = (uint16_t*)block;
         int i = n;
         if (!isbigend) while (i--) { uint16_t color = *block16; *block16++ = (color >> 8)|(color << 8); }
-        CD_DATA;
-        SPI.transfer(block, n * 2);
+        write_data_block(block, n * 2);
     } else
 #endif
     while (n-- > 0) {
