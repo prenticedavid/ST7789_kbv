@@ -103,8 +103,9 @@ void ST7789_kbv::setRotation(uint8_t r)
     vertScroll(0, HEIGHT, 0);
     if (_lcd_ID == 0x7789) {
         uint8_t d[3] = {0x27, 0x00, 0x10}; //regular 240x320
+        if (HEIGHT == 240) d[0] = 0x1D;     //240/8 - 1 = 29
         if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A;     //fix GateScan on 240x240 panel
-//        pushCommand(0xE4, d, 3);   //.kbv fix later
+        pushCommand(0xE4, d, 3);   //.kbv fix later
     }
 }
 
@@ -294,7 +295,7 @@ static const uint8_t ST7789_regValues[] PROGMEM = {
     (0xB7), 1, 0x35,    //GCTRL: Gate Control [35]
     (0xBB), 1, 0x2B,    //VCOMS: VCOM setting VCOM=1.175 [20] VCOM=0.9
     (0xC0), 1, 0x1C,    //LCMCTRL: LCM Control [2C] was=14
-    //            (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
+    (0xE4), 1, 0x1D,    //GATE CTRL: 240/8-1 = 29
     (0xC2), 2, 0x01, 0xFF,      //VDVVRHEN: VDV and VRH Command Enable [01 FF]
     (0xC3), 1, 0x11,    //VRHS: VRH Set VAP=4.4, VAN=-4.4 [0B]
     (0xC4), 1, 0x20,    //VDVS: VDV Set [20]
