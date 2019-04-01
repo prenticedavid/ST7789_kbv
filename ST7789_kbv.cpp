@@ -11,14 +11,6 @@
 #include "ST7789_serial.h"
 //#include "serial_kbv.h"
 
-/*
-static inline void write16(uint16_t x)
-{
-    WriteDat(x >> 8);
-    WriteDat(x & 0xFF);
-}
-*/
-
 static inline void writeColor(uint16_t color, uint32_t n)
 {
     // alter this function for 666 format controllers
@@ -108,6 +100,7 @@ void ST7789_kbv::setRotation(uint8_t r)
     }
     mac ^= _lcd_xor;
     pushCommand(0x36, &mac, 1);
+    vertScroll(0, HEIGHT, 0);
     if (_lcd_ID == 0x7789) {
         uint8_t d[3] = {0x27, 0x00, 0x10}; //regular 240x320
         if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A;     //fix GateScan on 240x240 panel

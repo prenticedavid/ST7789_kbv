@@ -45,6 +45,7 @@
 #ifdef USE_NO_CS
 #warning USE_NO_CS
 #define CS_PIN    NO_CS_PIN
+#define CS_PORT   NO_CS_PORT
 #endif
 
 #if defined(__AVR_ATmega328P__)
@@ -103,7 +104,7 @@
 
 #define FLUSH_IDLE CS_IDLE
 
-static SPISettings settings(12000000, MSBFIRST, SPI_MODE0); //8MHz is max for Saleae. 12MHz is max for ILI9481
+static SPISettings settings(12000000, MSBFIRST, SPI_MODE3); //8MHz is max for Saleae. 12MHz is max for ILI9481
 
 #if 1
 

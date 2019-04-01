@@ -2,7 +2,7 @@
 #define ST7789_KBV_H_ 100
 
 #define USE_MBED defined(__MBED__)
-//#define USE_NO_CS 
+#define USE_NO_CS 
 
 #if ARDUINO < 165
 #define USE_GFX_KBV
