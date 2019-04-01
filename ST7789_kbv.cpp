@@ -2,168 +2,30 @@
 //to do: read ID at faster SPI speeds
 
 #include "ST7789_kbv.h"
-#include <SPI.h>
 
 #define USE_9BIT  0
 #define USE_SPI   1
 #define USE_666   0       //565 or 666
 #define USE_ID    0x7735
 
-#if defined(ESP32)
-#define RESET_PIN 12
-#define CD_PIN    13
-#define CS_PIN    4
-#define NO_CS_PIN 14
-#define MOSI_PIN  23
-#define SCK_PIN   18
-#elif defined(ESP8266)
-#define RESET_PIN D8
-#define CD_PIN    D9
-#define CS_PIN    D10
-#define NO_CS_PIN D7
-#define MOSI_PIN  D11
-#define SCK_PIN   D13
-#elif defined(ARDUINO_BLUEPILL_F103C8) || defined(ARDUINO_GENERIC_STM32F103C) //MY_BLUEPILL
-#define RESET_PIN PA9
-#define CD_PIN    PA10
-#define CS_PIN    PB12
-#define NO_CS_PIN PA3
-#define MOSI_PIN  PB15
-#define SCK_PIN   PB13
-#else
-#define RESET_PIN 8
-#define CD_PIN    9
-#define CS_PIN    10
-#define NO_CS_PIN 7
-#define MOSI_PIN  11
-#define SCK_PIN   13
-#endif
+#include "ST7789_serial.h"
+//#include "serial_kbv.h"
 
-#ifdef USE_NO_CS
-#warning USE_NO_CS
-#define CS_PIN    NO_CS_PIN
-#endif
-
-
-#define CD_COMMAND digitalWrite(CD_PIN, LOW)
-#define CD_DATA    digitalWrite(CD_PIN, HIGH)
-#define CD_OUTPUT  pinMode(CD_PIN, OUTPUT)
-#define CS_ACTIVE  digitalWrite(CS_PIN, LOW)
-#define CS_IDLE    digitalWrite(CS_PIN, HIGH)
-#define CS_OUTPUT  pinMode(CS_PIN, OUTPUT)
-#define RESET_ACTIVE  digitalWrite(RESET_PIN, LOW)
-#define RESET_IDLE    digitalWrite(RESET_PIN, HIGH)
-#define RESET_OUTPUT  pinMode(RESET_PIN, OUTPUT)
-#define MOSI_LO    digitalWrite(MOSI_PIN, LOW)
-#define MOSI_HI    digitalWrite(MOSI_PIN, HIGH)
-#define MOSI_OUTPUT pinMode(MOSI_PIN, OUTPUT)
-#define SCK_LO     digitalWrite(SCK_PIN, LOW)
-#define SCK_HI     digitalWrite(SCK_PIN, HIGH)
-#define SCK_OUTPUT pinMode(SCK_PIN, OUTPUT)
-
-#define FLUSH_IDLE CS_IDLE
-
-static SPISettings settings(8000000, MSBFIRST, SPI_MODE3); //8MHz is max for Saleae. 12MHz is max for ILI9481
-
-static inline void write9(uint8_t c, uint8_t dc)
-{
-#if defined(ESP32) && USE_SPI && USE_9BIT
-    uint32_t out, d = c;
-    if (dc) d |= 0x100;
-    d <<= 7;    //shift to nearest byte boundary. remove mask from HAL function.
-    //alternatively use regular user values.  let HAL shift to byte boundary.
-    SPI.transferBits(d, NULL, 9);
-    return;
-#endif
-#if USE_9BIT
-    if (dc) MOSI_HI;
-    else MOSI_LO;
-    SCK_LO;
-    SCK_HI;
-#else
-    if (dc) CD_DATA;
-    else CD_COMMAND;
-#endif
-#if USE_SPI
-    SPI.transfer(c);
-#else
-    for (int i = 0; i < 8; i++) {
-        if (c & 0x80) MOSI_HI;
-        else MOSI_LO;
-        SCK_LO;
-        SCK_HI;
-        c <<= 1;
-    }
-#endif
-#if !USE_9BIT
-    CD_DATA; //.kbv
-#endif
-}
-
-static inline void write_data_block(uint8_t *buf, int n)
-{
-#if USE_SPI && !USE_9BIT
-    CD_DATA;
-#if defined(__STM32F1__)  //weird maple
-    SPI.write(buf, n);
-#else
-    SPI.transfer(buf, n);
-#endif
-#else
-    while (n--) write9(*buf++, 1);
-#endif
-}
-
-static inline void WriteCmd(uint8_t c)
-{
-    CS_ACTIVE;
-    write9(c, 0);
-}
-
-static inline void WriteDat(uint8_t c)
-{
-    write9(c, 1);
-}
-
-static void INIT(void)
-{
-    CS_IDLE;
-    RESET_IDLE;
-    CS_OUTPUT;
-    RESET_OUTPUT;
-    CD_OUTPUT;
-    CD_DATA;
-    MOSI_OUTPUT;
-    SCK_OUTPUT;
-    SCK_HI;
-#if USE_SPI
-    SPI.begin();
-    SPI.beginTransaction(settings);
-#endif
-}
-
+/*
 static inline void write16(uint16_t x)
 {
     WriteDat(x >> 8);
     WriteDat(x & 0xFF);
 }
+*/
 
 static inline void writeColor(uint16_t color, uint32_t n)
 {
     // alter this function for 666 format controllers
 #if USE_666
-    uint8_t r = color >> 8, g = (color >> 3), b = color << 3;
-    while (n-- > 0) {
-        WriteDat(r);
-        WriteDat(g);
-        WriteDat(b);
-    }
+    write24_N(color, n);
 #else
-    uint8_t h = (color >> 8), l = color;
-    while (n--) {
-        WriteDat(h);
-        WriteDat(l);
-    }
+    write16_N(color, n);
 #endif
 }
 
@@ -335,7 +197,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
         uint16_t *block16 = (uint16_t*)block;
         int i = n;
         if (!isbigend) while (i--) { uint16_t color = *block16; *block16++ = (color >> 8)|(color << 8); }
-        write_data_block(block, n * 2);
+        write8_block(block, n * 2);
     } else
 #endif
     while (n-- > 0) {
