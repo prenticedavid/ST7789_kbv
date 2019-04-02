@@ -26,7 +26,7 @@ private:
     DigitalOut      _lcd_pin_cs, _lcd_pin_rs, _lcd_pin_reset;
 #else
 public:
-	ST7789_kbv(uint16_t id = 0x7789, int w = 240, int h = 240, int offset = 0);
+	ST7789_kbv(uint16_t id = 0x7789, int w = 240, int h = 240, int offset = 0, int xorf = -1);
 #endif
 public:
 	void     reset(void);                                       // you only need the constructor
@@ -57,7 +57,8 @@ public:
 
 	private:
     uint8_t readReg8(uint8_t reg, uint8_t dat);
-	uint16_t        _lcd_ID, _lcd_xor, __OFFSET;
+	uint8_t         _lcd_xor;
+	uint16_t        _lcd_ID, __OFFSET;
 };
 
 // New color definitions.  thanks to Bodmer
