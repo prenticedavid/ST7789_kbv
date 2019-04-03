@@ -1,5 +1,6 @@
 # ST7789_kbv
 Library for TFT SPI modules :
+
 ST7735   128x160 (and 128x128)
 GC9101   128x128
 ILI9163  128x128
