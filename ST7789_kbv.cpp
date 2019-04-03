@@ -5,7 +5,7 @@
 
 #define USE_9BIT  0
 #define USE_SPI   1
-#define USE_666   0       //565 or 666
+#define USE_666   1       //565 or 666
 #define USE_ID    0x7735
 
 #include "ST7789_serial.h"
