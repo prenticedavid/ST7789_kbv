@@ -123,11 +123,13 @@ static SPISettings settings(12000000, MSBFIRST, SPI_MODE3); //8MHz is max for Sa
 #define FLUSH()
 #endif
 
-static inline void write8(uint8_t c)
+#define write8 xchg8
+static inline uint8_t xchg8(uint8_t c)
 {
     WRITE8(c);
     READ8(c);
     FLUSH();
+    return c;
 }
 static inline void write16_N(uint16_t x, int16_t n)
 {
