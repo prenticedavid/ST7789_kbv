@@ -49,6 +49,27 @@ void ST7789_kbv::pushCommand(uint16_t cmd, uint8_t * block, int8_t N)
     FLUSH_IDLE;
 }
 
+uint8_t ST7789_kbv::readReg8(uint8_t reg, uint8_t dat)
+{
+    uint8_t ret;
+    WriteCmd(reg);
+	delay(1);
+    ret = xchg8(dat);           //only safe to read @ SCK=16MHz
+    CS_IDLE;
+    return ret;
+}
+
+uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx)         //this is the same as Adafruit_ILI9488
+{
+    uint8_t SPIREAD_CMD = (_lcd_ID == 0x9341) ? 0xD9 : 0xFB;
+    uint8_t SPIREAD_EN  = (_lcd_ID == 0x9341) ? 0x10 : 0x80;
+    readReg8(SPIREAD_CMD, SPIREAD_EN | idx);   //SPI_READ, SPI_READ_EN
+    delay(1);
+    uint8_t ret = readReg8(reg, 0x00); 
+    readReg8(SPIREAD_CMD, 0);   //ILI9488 MUST disable afterwards
+	return ret;
+}
+
 uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
 {
     if (!done_reset) reset();
@@ -57,12 +78,32 @@ uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
 
 uint16_t ST7789_kbv::readReg(uint16_t reg, uint8_t idx)
 {
-    return 0x1234;
+    if (_lcd_ID != 0x9341 && _lcd_ID != 0x9488) return 0x1234;
+    uint8_t h, l;
+    idx <<= 1;
+    h = readcommand8(reg, idx);
+    l = readcommand8(reg, idx + 1);
+    return (h << 8) | l;
 }
 
 int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, int16_t h)
 {
-    return 1;
+    uint8_t r, g, b;
+    int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
+    setAddrWindow(x, y, x + w - 1, y + h - 1);
+    WriteCmd(0x2E);
+
+    // needs 1 dummy read
+    r = xchg8(0xFF);
+    while (n-- > 0) {
+        r = xchg8(0xFF);
+        g = xchg8(0xFF);
+        b = xchg8(0xFF);
+		*block++ = color565(r, g, b);
+    }
+//    CS_IDLE;
+    setAddrWindow(0, 0, width() - 1, height() - 1);
+    return 0;
 }
 
 void ST7789_kbv::setRotation(uint8_t r)
@@ -105,11 +146,14 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
         return;
     if (rotation == 0) y += __OFFSET;
     if (rotation == 1) x += __OFFSET;
+    bool is_9488 = (_lcd_ID == 0x9488);
     CS_ACTIVE;
     WriteCmd(0x2A);
     write16(x);
+    if (is_9488) write16(x);
     WriteCmd(0x2B);
     write16(y);
+    if (is_9488) write16(y);
     WriteCmd(0x2C);
     writeColor(color, 1);
     FLUSH_IDLE;
