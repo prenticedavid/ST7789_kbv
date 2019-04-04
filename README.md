@@ -14,7 +14,13 @@ Use offset in constructor(ID, w, h, offset, xor) and xor to configure directions
 
 This ST7789 240x240 Ebay module has no /CS pin and is strictly 3.3V for VCC and GPIO.  #define USE_NO_CS  
 ILI9481, ILI9488 can only operate in 666 mode.   It is optional for the other controllers.   #define USE_666 1  
-The ST7789 only starts up in SPI mode3.   Controllers with CS pin can use both mode#0 and mode#3  
 
-I have not implemented readGRAM(), readID(), ... yet  
+The ST7789 only starts up in SPI mode3.  
+The other ontrollers can use both mode#0 and mode#3 with or without CS pin.  
+
+ILI9481, ILI9488 can select bidirectional SDA pin at runtime with SDA_EN bit.    
+The other controllers are only bidirectional when configured by IM# pins.  
+
+readcommand8(), readReg(), readGRAM() only working with MISO.  
+I have not implemented readID() yet.  You can use readReg(0xD3, 1)  
 Nor have I implemented 9-bit bidirectional driver for ILI9481 yet  
