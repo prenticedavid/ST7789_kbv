@@ -42,7 +42,8 @@
 #elif defined(__AVR_ATxmega32A4U__) || defined(__AVR_ATxmega128A4U__)
 #include "serial_xmega.h"
 #define xchg8(x)     xchg8_1(x)
-#define WriteCmd(x)  { CD_COMMAND; xchg8_1(x); CD_DATA; }
+#define WriteCmd(x)  { CS_ACTIVE; CD_COMMAND; xchg8_1(x); CD_DATA; }
+#define WriteDat(x)  xchg8_1(x)
 #define wait_ms(ms)  delay(ms)
 #define write16(x)   { write16_N(x, 1); }
 #define write24(x)   { write24_N(x, 1); }
@@ -62,7 +63,8 @@
 #define SDIO_OUTMODE() {MOSI_OUT;SCK_OUT;}
 #else
 #define xchg8(x)     xchg8_1(x)
-#define WriteCmd(x)  { CD_COMMAND; xchg8_1(x); CD_DATA; }
+#define WriteCmd(x)  { CS_ACTIVE; CD_COMMAND; xchg8_1(x); CD_DATA; }
+#define WriteDat(x)  xchg8_1(x)
 #define INIT()  { CS_IDLE; RESET_IDLE; SETDDR; SPI.begin(); SPI.beginTransaction(settings); }
 #define SDIO_INMODE()  SPI.endTransaction(); MOSI_IN;SCK_OUT    //no braces
 #define SDIO_OUTMODE() {MOSI_OUT;SCK_OUT;SPI.beginTransaction(settings);}
@@ -99,7 +101,7 @@ static uint8_t spibuf[16];
 #define SCK_PIN    PB13
 #else
 #define CD_PIN     9
-#define CS_PIN     7         //.kbv
+#define CS_PIN     10         //.kbv
 #define RESET_PIN  8
 #define SD_PIN     4
 #define MOSI_PIN   11
@@ -116,7 +118,7 @@ static uint8_t spibuf[16];
 
 #define FLUSH_IDLE { CS_IDLE; }
 
-static SPISettings settings(8000000, MSBFIRST, SPI_MODE3);
+static SPISettings settings(8000000, MSBFIRST, SPI_MODE0);
 
 static inline void write_8(uint8_t val)
 {
