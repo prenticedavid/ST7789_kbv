@@ -84,27 +84,10 @@
 #define LED_HI     PIN_HIGH(LED_PORT, LED_PIN)
 #define LED_OUT    PIN_OUTPUT(LED_PORT, LED_PIN)
 
-/*
-#define CD_COMMAND digitalWrite(CD_PIN, LOW)
-#define CD_DATA    digitalWrite(CD_PIN, HIGH)
-#define CD_OUTPUT  pinMode(CD_PIN, OUTPUT)
-#define CS_ACTIVE  digitalWrite(CS_PIN, LOW)
-#define CS_IDLE    digitalWrite(CS_PIN, HIGH)
-#define CS_OUTPUT  pinMode(CS_PIN, OUTPUT)
-#define RESET_ACTIVE  digitalWrite(RESET_PIN, LOW)
-#define RESET_IDLE    digitalWrite(RESET_PIN, HIGH)
-#define RESET_OUTPUT  pinMode(RESET_PIN, OUTPUT)
-#define MOSI_LO    digitalWrite(MOSI_PIN, LOW)
-#define MOSI_HI    digitalWrite(MOSI_PIN, HIGH)
-#define MOSI_OUTPUT pinMode(MOSI_PIN, OUTPUT)
-#define SCK_LO     digitalWrite(SCK_PIN, LOW)
-#define SCK_HI     digitalWrite(SCK_PIN, HIGH)
-#define SCK_OUTPUT pinMode(SCK_PIN, OUTPUT)
-*/
+#define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
-#define FLUSH_IDLE CS_IDLE
-
-static SPISettings settings(12000000, MSBFIRST, SPI_MODE3); //8MHz is max for Saleae. 12MHz is max for ILI9481
+//8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
+static SPISettings settings(12000000, MSBFIRST, SPI_MODE3);
 
 #if 1
 
@@ -115,8 +98,13 @@ static SPISettings settings(12000000, MSBFIRST, SPI_MODE3); //8MHz is max for Sa
 #elif defined(ARDUINO_ARCH_STM32)
 #warning ARDUINO_ARCH_STM32
 #define WRITE8(x)   { while( !(SPI1->SR & SPI_SR_TXE)) ; *(uint8_t *)&SPI1->DR = x; }
-#define READ8(c)    { }
+#define READ8(c)    { while( !(SPI1->SR & SPI_SR_RXNE)) ; c = SPI1->DR; }
 #define FLUSH()     { while(SPI1->SR & 0x80) ; }
+#elif defined(ARDUINO_ARCH_SAMD)
+#warning ARDUINO_ARCH_SAMD
+#define WRITE8(x)   { while( !(SERCOM4->SPI.INTFLAG.bit.DRE)) ; SERCOM4->SPI.DATA.bit.DATA = x; }
+#define READ8(c)    { while( !(SERCOM4->SPI.INTFLAG.bit.RXC)) ; c = SERCOM4->SPI.DATA.bit.DATA; }
+#define FLUSH()     {  ; }
 #else
 #define WRITE8(x)   { SPI.transfer(x); }
 #define READ8(c)    { }
