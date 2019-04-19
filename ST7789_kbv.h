@@ -58,7 +58,7 @@ public:
 
 	private:
     uint8_t readReg8(uint8_t reg, uint8_t dat);
-	uint8_t         _lcd_xor;
+	uint8_t         _lcd_xor, _MC, _MP, _MW;
 	uint16_t        _lcd_ID, __OFFSET;
 };
 
