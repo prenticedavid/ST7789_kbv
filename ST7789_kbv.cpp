@@ -99,9 +99,9 @@ int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, 
         r = xchg8(0xFF);
         g = xchg8(0xFF);
         b = xchg8(0xFF);
-		*block++ = color565(r, g, b);
+        *block++ = color565(r, g, b);
     }
-//    CS_IDLE;
+    FLUSH_IDLE;
     setAddrWindow(0, 0, width() - 1, height() - 1);
     return 0;
 }
@@ -259,7 +259,7 @@ void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool b
     pushColors_any(0x2C, (uint8_t *)block, n, first, bigend ? 3 : 1);
 }
 
-void ST7789_kbv::invertDisplay(boolean i)
+void ST7789_kbv::invertDisplay(bool i)
 {
     pushCommand(i ? 0x21 : 0x20, NULL, 0);
 }
