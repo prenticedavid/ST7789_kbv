@@ -5,7 +5,7 @@
 
 #define USE_9BIT  0
 #define USE_SPI   1
-#define USE_666   1       //565 or 666
+#define USE_666   0       //565 or 666
 #define USE_ID    0x7735
 
 #include "ST7789_serial.h"
@@ -110,6 +110,29 @@ void ST7789_kbv::setRotation(uint8_t r)
 {
     uint8_t mac = 0x00;
     Adafruit_GFX::setRotation(r & 3);
+    if (_lcd_ID == 0x1351) {
+        switch (rotation) {
+            case 0:                    //PORTRAIT:
+                mac = 0x74;            //COLR=1, SM=1, SS=1, ?ML=0, BGR=1, GS=0, MV=0
+                break;
+            case 1:                    //LANDSCAPE: 90 degrees
+                mac = 0x77;            //COLR=1, SM=1, SS=1, ?ML=0, BGR=1, GS=1, MV=1
+                break;
+            case 2:                    //PORTRAIT_REV: 180 degrees
+                mac = 0x66;            //COLR=1, SM=1, SS=0, ?ML=0, BGR=1, GS=1, MV=0
+                break;
+            case 3:                    //LANDSCAPE_REV: 270 degrees
+                mac = 0x65;            //COLR=1, SM=1, SS=0, ?ML=0, BGR=1, GS=0, MV=1
+                break;
+        }
+        _MC = rotation & 1 ? 0x75 : 0x15;
+        _MP = rotation & 1 ? 0x15 : 0x75;
+        _MW = 0x5C;
+        mac ^= _lcd_xor;
+        pushCommand(0xA0, &mac, 1);
+        vertScroll(0, HEIGHT, 0);
+        return;
+    }
     switch (rotation) {
         case 0:
             mac = 0x08;
@@ -124,6 +147,7 @@ void ST7789_kbv::setRotation(uint8_t r)
             mac = 0xB8;
             break;
     }
+    _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;
     mac ^= _lcd_xor;
     if (_lcd_ID == 0x9481) {              //flip GS, SS instead of MX, MY
         if (mac & 0x80) mac |= 0x01;      //GS = MY
@@ -144,30 +168,46 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     // ILI934X just plots at edge if you try to write outside of the box:
     if (x < 0 || y < 0 || x >= width() || y >= height())
         return;
+    if (_lcd_ID == 0x1351) {
+        setAddrWindow(x, y, x, y);
+        WriteCmd(_MW);
+        writeColor(color, 1);
+        FLUSH_IDLE;
+        return;
+    }
     if (rotation == 0) y += __OFFSET;
     if (rotation == 1) x += __OFFSET;
     bool is_9488 = (_lcd_ID == 0x9488);
-    CS_ACTIVE;
-    WriteCmd(0x2A);
+    WriteCmd(_MC);
     write16(x);
     if (is_9488) write16(x);
-    WriteCmd(0x2B);
+    WriteCmd(_MP);
     write16(y);
     if (is_9488) write16(y);
-    WriteCmd(0x2C);
+    WriteCmd(_MW);
     writeColor(color, 1);
     FLUSH_IDLE;
 }
 
 void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
+    if (_lcd_ID == 0x1351) {
+        WriteCmd(_MC);
+        write8(x);
+        write8(x1);
+        WriteCmd(_MP);
+        write8(y);
+        write8(y1);
+        FLUSH_IDLE;
+        return;
+    }
     if (rotation == 0) y += __OFFSET, y1 += __OFFSET;
     if (rotation == 1) x += __OFFSET, x1 += __OFFSET;
     CS_ACTIVE;
-    WriteCmd(0x2A);
+    WriteCmd(_MC);
     write16(x);
     write16(x1);
-    WriteCmd(0x2B);
+    WriteCmd(_MP);
     write16(y);
     write16(y1);
     FLUSH_IDLE;
@@ -197,7 +237,7 @@ void ST7789_kbv::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t c
         end = height();
     h = end - y;
     setAddrWindow(x, y, x + w - 1, y + h - 1);
-    WriteCmd(0x2C);
+    WriteCmd(_MW);
     if (h > w) {
         end = h;
         h = w;
@@ -248,24 +288,30 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
 
 void ST7789_kbv::pushColors(uint16_t * block, int16_t n, bool first)
 {
-    pushColors_any(0x2C, (uint8_t *)block, n, first, 0);
+    pushColors_any(_MW, (uint8_t *)block, n, first, 0);
 }
 void ST7789_kbv::pushColors(uint8_t * block, int16_t n, bool first)
 {
-    pushColors_any(0x2C, (uint8_t *)block, n, first, 2);   //regular bigend
+    pushColors_any(_MW, (uint8_t *)block, n, first, 2);   //regular bigend
 }
 void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool bigend)
 {
-    pushColors_any(0x2C, (uint8_t *)block, n, first, bigend ? 3 : 1);
+    pushColors_any(_MW, (uint8_t *)block, n, first, bigend ? 3 : 1);
 }
 
 void ST7789_kbv::invertDisplay(bool i)
 {
+    if (_lcd_ID == 0x1351) pushCommand(i ? 0xA7 : 0xA6, NULL, 0); else
     pushCommand(i ? 0x21 : 0x20, NULL, 0);
 }
 
 void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 {
+    if (_lcd_ID == 0x1351) {
+        uint8_t offset8 = offset;
+        pushCommand(0xA1, &offset8, 1);
+        return;
+    }
     if (rotation == 0 || rotation == 1) top += __OFFSET;
     int16_t bfa = HEIGHT + __OFFSET - top - scrollines;  // Ilitek checks valid
     int16_t vsp;
@@ -298,6 +344,30 @@ static const uint8_t wake_on[] PROGMEM = {
     0x3A, 1, 0x55,      //Pixel read=565, write=565.
 #endif
     0x29, 0,            //Display On
+};
+
+static const uint8_t PROGMEM table1351[] = {
+    //  (COMMAND_BYTE), n, data_bytes....
+    0xFD, 1, 0x12,       // set command lock
+    0xFD, 1, 0xB1,       // set command lock
+    0xAE, 0,             //display off
+    0xB3, 1, 0xF1,       //clock freq=15, div=1
+    0xCA, 1, 0x7F,       //multiplex = 128
+    0xA0, 1, 0x74,       //remap  COL=1, SM=1, SS=1, RGB=1, GS=0, MV=0
+    0x15, 2, 0x00, 0x7F, //SETCOL
+    0x75, 2, 0x00, 0x7F, //SETROW
+    0xA1, 1, 0x00,       //STARTLINE
+    0xA2, 1, 0x00,       //DISPLAYOFFSET
+    0xB5, 1, 0x00,       //SETGPIO
+    0xAB, 1, 0x01,       //FUNCTIONSELECT internal
+    0xB1, 1, 0x32,       //PRECHARGE
+    0xBE, 1, 0x05,       //VCOMH
+    0xA6, 0,             //NORMAL
+    0xC1, 3, 0xC8, 0x80, 0xC8, //CONTRASTABC
+    0xC7, 1, 0x0F,       //CONTRASTMASTER
+    0xB4, 3, 0xA0, 0xB5, 0x55, //SETVSL
+    0xB6, 1, 0x01,       //PRECHARGE2
+    0xAF, 0,             //display on
 };
 
 static const uint8_t PROGMEM table7735S[] = {
@@ -460,6 +530,11 @@ void ST7789_kbv::begin(uint16_t ID)
     if (_lcd_xor == 0xFF) _lcd_xor = 0x00;   //default
 
     reset();
+    if (_lcd_ID == 0x1351) {
+        init_table(table1351, sizeof(table1351));
+        setRotation(0);             //PORTRAIT
+        return;
+    }
     init_table(&reset_off, sizeof(reset_off));
     init_table(table, size);
     init_table(&wake_on, sizeof(wake_on));   //can change PIXFMT
