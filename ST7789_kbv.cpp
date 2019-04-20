@@ -53,7 +53,7 @@ uint8_t ST7789_kbv::readReg8(uint8_t reg, uint8_t dat)
 {
     uint8_t ret;
     WriteCmd(reg);
-	delay(1);
+    delay(1);
     ret = xchg8(dat);           //only safe to read @ SCK=16MHz
     CS_IDLE;
     return ret;
@@ -65,9 +65,9 @@ uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx)         //this is the
     uint8_t SPIREAD_EN  = (_lcd_ID == 0x9341) ? 0x10 : 0x80;
     readReg8(SPIREAD_CMD, SPIREAD_EN | idx);   //SPI_READ, SPI_READ_EN
     delay(1);
-    uint8_t ret = readReg8(reg, 0x00); 
+    uint8_t ret = readReg8(reg, 0x00);
     readReg8(SPIREAD_CMD, 0);   //ILI9488 MUST disable afterwards
-	return ret;
+    return ret;
 }
 
 uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
@@ -127,7 +127,7 @@ void ST7789_kbv::setRotation(uint8_t r)
     mac ^= _lcd_xor;
     pushCommand(madctl, &mac, 1);
     vertScroll(0, HEIGHT, 0);
-    if (_lcd_ID == 0x7789 &&__OFFSET == 0) {
+    if (_lcd_ID == 0x7789 && __OFFSET == 0) {
         uint8_t d[3] = {0x27, 0x00, 0x10};              //always use 320 scan lines
         if (HEIGHT == 240 && rotation & 2) d[1] = 0x0A; //adjust SCS on 240x240 panel
         pushCommand(0xE4, d, 3);                        //
@@ -394,7 +394,7 @@ static const uint8_t ILI9481_RGB_regValues[] PROGMEM = {    // 320x480
     0xF0, 1, 0x08,
     0xF6, 1, 0x84,
     0xF7, 1, 0x80,
-//    0x0C, 2, 0x00, 0x55, //RDCOLMOD
+    //    0x0C, 2, 0x00, 0x55, //RDCOLMOD
     0xB4, 1, 0x00,              //SETDISPLAY
     //          0xB3, 4, 0x00, 0x01, 0x06, 0x01,  //SETGRAM simple example
     0xB3, 4, 0x00, 0x01, 0x06, 0x30,  //jpegs example
