@@ -55,7 +55,7 @@ uint8_t ST7789_kbv::readReg8(uint8_t reg, uint8_t dat)
     WriteCmd(reg);
     delay(1);
     ret = xchg8(dat);           //only safe to read @ SCK=16MHz
-    CS_IDLE;
+    FLUSH_IDLE;
     return ret;
 }
 
@@ -117,12 +117,12 @@ void ST7789_kbv::setRotation(uint8_t r)
 {
     uint8_t mac, madctl = 0x36, ofs = 0;;
     Adafruit_GFX::setRotation(r & 3);
+    if (_lcd_ID == 0x9481) ofs = 4;
     if (is1351) {
         madctl = 0xA0, ofs = 8, _MC = 0x15, _MP = 0x75, _MW = 0x5C;
         if (use_666) ofs += 4;
         if (rotation & 1) _MC = 0x75, _MP = 0x15;
     }
-    if (_lcd_ID == 0x9481) ofs = 4;
     mac = pgm_read_byte(mactable + ofs + rotation);
     mac ^= _lcd_xor;
     pushCommand(madctl, &mac, 1);
@@ -210,7 +210,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
     uint8_t h, l;
     bool isconst = flags & 1;
     bool isbigend = (flags & 2) != 0;
-    CS_ACTIVE;
+    CS_ACTIVE;      //subsequent calls
     if (first) {
         WriteCmd(cmd);
     }
@@ -374,11 +374,10 @@ static const uint8_t ILI9341_regValues_2_4[] PROGMEM = {   // BOE 2.4"
     0xC1, 1, 0x11,              //Power Control 2 [00]
     0xC5, 2, 0x3F, 0x3C,        //VCOM 1 [31 3C]
     0xC7, 1, 0xB5,              //VCOM 2 [C0]
-    //    0x36, 1, 0x48,      //Memory Access [00]
     //    0xF2, 1, 0x00,      //Enable 3G [02]
     0x26, 1, 0x01,              //Gamma Set [01]
-        0xE0, 15, 0x0f, 0x26, 0x24, 0x0b, 0x0e, 0x09, 0x54, 0xa8, 0x46, 0x0c, 0x17, 0x09, 0x0f, 0x07, 0x00,
-        0xE1, 15, 0x00, 0x19, 0x1b, 0x04, 0x10, 0x07, 0x2a, 0x47, 0x39, 0x03, 0x06, 0x06, 0x30, 0x38, 0x0f,
+    0xE0, 15, 0x0f, 0x26, 0x24, 0x0b, 0x0e, 0x09, 0x54, 0xa8, 0x46, 0x0c, 0x17, 0x09, 0x0f, 0x07, 0x00,
+    0xE1, 15, 0x00, 0x19, 0x1b, 0x04, 0x10, 0x07, 0x2a, 0x47, 0x39, 0x03, 0x06, 0x06, 0x30, 0x38, 0x0f,
 };
 
 static const uint8_t ILI9481_RGB_regValues[] PROGMEM = {    // 320x480
@@ -394,7 +393,6 @@ static const uint8_t ILI9481_RGB_regValues[] PROGMEM = {    // 320x480
     0xF0, 1, 0x08,
     0xF6, 1, 0x84,
     0xF7, 1, 0x80,
-    //    0x0C, 2, 0x00, 0x55, //RDCOLMOD
     0xB4, 1, 0x00,              //SETDISPLAY
     //          0xB3, 4, 0x00, 0x01, 0x06, 0x01,  //SETGRAM simple example
     0xB3, 4, 0x00, 0x01, 0x06, 0x30,  //jpegs example
