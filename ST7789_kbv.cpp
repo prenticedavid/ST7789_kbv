@@ -7,18 +7,18 @@
 #define USE_SPI   1
 #define USE_666   0       //565 or 666
 #define USE_ID    0x7735
+#define SUPPORT_1351      //inserts is1351 conditionals
 
 #include "ST7789_serial.h"
 //#include "serial_kbv.h"
 
+static bool is1351, use_666;
+
 static inline void writeColor(uint16_t color, uint32_t n)
 {
     // alter this function for 666 format controllers
-#if USE_666
-    write24_N(color, n);
-#else
-    write16_N(color, n);
-#endif
+    if (use_666) write24_N(color, n);  //SSD1351 has color in bits 5..0
+    else write16_N(color, n);
 }
 
 ST7789_kbv::ST7789_kbv(uint16_t id, int w, int h, int offset, int xorf): Adafruit_GFX(w, h)
@@ -106,55 +106,26 @@ int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, 
     return 0;
 }
 
+static const uint8_t PROGMEM mactable[] = {
+    0x08, 0x68, 0xD8, 0xB8,  //MIPI style
+    0x08, 0x2A, 0x1B, 0x39,  //9481
+    0x74, 0x77, 0x66, 0x65,  //1351 565
+    0xB4, 0xB7, 0xA6, 0xA5,  //1351 666
+};
+
 void ST7789_kbv::setRotation(uint8_t r)
 {
-    uint8_t mac = 0x00;
+    uint8_t mac, madctl = 0x36, ofs = 0;;
     Adafruit_GFX::setRotation(r & 3);
-    if (_lcd_ID == 0x1351) {
-        switch (rotation) {
-            case 0:                    //PORTRAIT:
-                mac = 0x74;            //COLR=1, SM=1, SS=1, ?ML=0, BGR=1, GS=0, MV=0
-                break;
-            case 1:                    //LANDSCAPE: 90 degrees
-                mac = 0x77;            //COLR=1, SM=1, SS=1, ?ML=0, BGR=1, GS=1, MV=1
-                break;
-            case 2:                    //PORTRAIT_REV: 180 degrees
-                mac = 0x66;            //COLR=1, SM=1, SS=0, ?ML=0, BGR=1, GS=1, MV=0
-                break;
-            case 3:                    //LANDSCAPE_REV: 270 degrees
-                mac = 0x65;            //COLR=1, SM=1, SS=0, ?ML=0, BGR=1, GS=0, MV=1
-                break;
-        }
-        _MC = rotation & 1 ? 0x75 : 0x15;
-        _MP = rotation & 1 ? 0x15 : 0x75;
-        _MW = 0x5C;
-        mac ^= _lcd_xor;
-        pushCommand(0xA0, &mac, 1);
-        vertScroll(0, HEIGHT, 0);
-        return;
+    if (is1351) {
+        madctl = 0xA0, ofs = 8, _MC = 0x15, _MP = 0x75, _MW = 0x5C;
+        if (use_666) ofs += 4;
+        if (rotation & 1) _MC = 0x75, _MP = 0x15;
     }
-    switch (rotation) {
-        case 0:
-            mac = 0x08;
-            break;
-        case 1:        //LANDSCAPE 90 degrees
-            mac = 0x68;
-            break;
-        case 2:
-            mac = 0xD8;
-            break;
-        case 3:
-            mac = 0xB8;
-            break;
-    }
-    _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;
+    if (_lcd_ID == 0x9481) ofs = 4;
+    mac = pgm_read_byte(mactable + ofs + rotation);
     mac ^= _lcd_xor;
-    if (_lcd_ID == 0x9481) {              //flip GS, SS instead of MX, MY
-        if (mac & 0x80) mac |= 0x01;      //GS = MY
-        if (!(mac & 0x40)) mac |= 0x02;   //SS = !MX
-        mac &= ~0xC0;                     //MY = MX = 0
-    }        
-    pushCommand(0x36, &mac, 1);
+    pushCommand(madctl, &mac, 1);
     vertScroll(0, HEIGHT, 0);
     if (_lcd_ID == 0x7789 &&__OFFSET == 0) {
         uint8_t d[3] = {0x27, 0x00, 0x10};              //always use 320 scan lines
@@ -168,16 +139,10 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     // ILI934X just plots at edge if you try to write outside of the box:
     if (x < 0 || y < 0 || x >= width() || y >= height())
         return;
-    if (_lcd_ID == 0x1351) {
-        setAddrWindow(x, y, x, y);
-        WriteCmd(_MW);
-        writeColor(color, 1);
-        FLUSH_IDLE;
-        return;
-    }
     if (rotation == 0) y += __OFFSET;
     if (rotation == 1) x += __OFFSET;
     bool is_9488 = (_lcd_ID == 0x9488);
+    if (is1351) x |= x << 8, y |= y << 8; //squeeze two 8-bits
     WriteCmd(_MC);
     write16(x);
     if (is_9488) write16(x);
@@ -191,24 +156,14 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
-    if (_lcd_ID == 0x1351) {
-        WriteCmd(_MC);
-        write8(x);
-        write8(x1);
-        WriteCmd(_MP);
-        write8(y);
-        write8(y1);
-        FLUSH_IDLE;
-        return;
-    }
     if (rotation == 0) y += __OFFSET, y1 += __OFFSET;
     if (rotation == 1) x += __OFFSET, x1 += __OFFSET;
-    CS_ACTIVE;
+    if (is1351) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
     WriteCmd(_MC);
-    write16(x);
+    if (!is1351) write16(x); //1351 squeezes into x1
     write16(x1);
     WriteCmd(_MP);
-    write16(y);
+    if (!is1351) write16(y);
     write16(y1);
     FLUSH_IDLE;
 }
@@ -259,8 +214,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
     if (first) {
         WriteCmd(cmd);
     }
-#if USE_666 == 0
-    if (!isconst) {
+    if (!isconst && !use_666) {
         uint16_t *block16 = (uint16_t*)block;
         int i = n;
         if (!isbigend) while (i--) {
@@ -269,7 +223,6 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
             }
         write8_block(block, n * 2);
     } else
-#endif
         while (n-- > 0) {
             if (isconst) {
                 h = pgm_read_byte(block++);
@@ -301,15 +254,14 @@ void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool b
 
 void ST7789_kbv::invertDisplay(bool i)
 {
-    if (_lcd_ID == 0x1351) pushCommand(i ? 0xA7 : 0xA6, NULL, 0); else
-    pushCommand(i ? 0x21 : 0x20, NULL, 0);
+    uint8_t normal = (is1351) ? 0xA6 : 0x20;
+    pushCommand(normal + i, NULL, 0);
 }
 
 void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
 {
-    if (_lcd_ID == 0x1351) {
-        uint8_t offset8 = offset;
-        pushCommand(0xA1, &offset8, 1);
+    if (is1351) {
+        pushCommand(0xA1, (uint8_t*)&offset, 1);
         return;
     }
     if (rotation == 0 || rotation == 1) top += __OFFSET;
@@ -338,11 +290,6 @@ static const uint8_t reset_off[] PROGMEM = {
 static const uint8_t wake_on[] PROGMEM = {
     0x11, 0,            //Sleep Out
     TFTLCD_DELAY8, 150,
-#if USE_666
-    0x3A, 1, 0x66,      //Pixel read=666, write=666.
-#else
-    0x3A, 1, 0x55,      //Pixel read=565, write=565.
-#endif
     0x29, 0,            //Display On
 };
 
@@ -494,7 +441,16 @@ void ST7789_kbv::begin(uint16_t ID)
     const uint8_t *table;
     int size;
     _lcd_ID = ID;
+    use_666 = USE_666;
+    _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;  //default MIPI registers
     switch (ID) {
+#ifdef SUPPORT_1351
+        case 0x1351:
+            table = table1351;
+            size = sizeof(table1351);
+            is1351 = true;
+            break;
+#endif
         case 0x7735:
             if (_lcd_xor == 0xFF) _lcd_xor = 0xD8;
             table = table7735S;
@@ -521,22 +477,23 @@ void ST7789_kbv::begin(uint16_t ID)
         case 0x9481:
             table = ILI9481_RGB_regValues;
             size = sizeof(ILI9481_RGB_regValues);
+            use_666 = true;
             break;
         case 0x9488:
             table = ILI9488_regValues_kbv;
             size = sizeof(ILI9488_regValues_kbv);
+            use_666 = true;
             break;
     }
     if (_lcd_xor == 0xFF) _lcd_xor = 0x00;   //default
 
     reset();
-    if (_lcd_ID == 0x1351) {
-        init_table(table1351, sizeof(table1351));
-        setRotation(0);             //PORTRAIT
-        return;
-    }
-    init_table(&reset_off, sizeof(reset_off));
+    if (!is1351) init_table(&reset_off, sizeof(reset_off));
     init_table(table, size);
-    init_table(&wake_on, sizeof(wake_on));   //can change PIXFMT
+    if (!is1351) init_table(&wake_on, sizeof(wake_on));
+    if (!is1351) {
+        uint8_t pixfmt = use_666 ? 0x66 : 0x55;
+        pushCommand(0x3A, &pixfmt, 1);
+    }
     setRotation(0);             //PORTRAIT
 }
