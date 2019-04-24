@@ -44,7 +44,8 @@ class ST7789_kbv : public Adafruit_GFX {
         virtual void invertDisplay(bool i);
 
         uint8_t  readcommand8(uint8_t reg, uint8_t idx);         //this is the same as Adafruit_ILI9488
-        uint16_t readReg(uint16_t reg, uint8_t idx = 0);            //note that this reads pairs of data bytes
+        uint16_t readReg(uint16_t reg, uint8_t idx = 0);         //note that this reads pairs of data bytes
+        uint32_t readReg32(uint16_t reg);                        //this reads 04, 09, 0A-0F, DA-DC via SDA
         int16_t  readGRAM(int16_t x, int16_t y, uint16_t *block, int16_t w, int16_t h);
         uint16_t readPixel(int16_t x, int16_t y) { uint16_t color; readGRAM(x, y, &color, 1, 1); return color; }
         void     setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1);
@@ -57,9 +58,8 @@ class ST7789_kbv : public Adafruit_GFX {
         void pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool first, uint8_t flags);
 
     private:
-        uint8_t readReg8(uint8_t reg, uint8_t dat);
-        uint8_t         _lcd_xor, _MC, _MP, _MW;
-        uint16_t        _lcd_ID, __OFFSET;
+        uint8_t  _lcd_xor, _MC, _MP, _MW;
+        uint16_t _lcd_ID, __OFFSET;
 };
 
 // New color definitions.  thanks to Bodmer
