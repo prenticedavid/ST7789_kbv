@@ -83,6 +83,8 @@
 #define PIN_LOW(p, b)        (p) &= ~(1<<(b))
 #define PIN_HIGH(p, b)       (p) |= (1<<(b))
 #define PIN_OUTPUT(p, b)     *(&p-1) |= (1<<(b))
+#define PIN_INPUT(p, b)      *(&p-1) &= ~(1<<(b))
+#define PIN_READ(p, b)       (*(&p+1) & (1<<(b)))
 #else
 #define PIN_LOW(p, b)        digitalWrite(b, LOW)
 #define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
