@@ -1,3 +1,27 @@
+// ST7735, ILI9163, ST7789, ILI9488 use bidirectional SDA pin
+// linking MOSI, MISO with a 470R is too big a load on SD card
+// and you still have a noticeable phase shift from the wiring capacitance.
+//
+// Only STM32 can do bidirectional.   AVR, SAM, SAMD, ESP can not.  
+// SAM, SAMD, K20, ESP, F072, L467, can do 9 bit.   AVR, F103, F401, F446 can not.
+//
+// L476 can do BIDIMODE with a good CS.  But it still clocks an "extra" byte.
+// ST7735 requires 1 dummy clock cycle when reading GRAM.
+// so we might just as well bit-bash on smaller controllers.
+//
+// I will try full L476 hardware on ILI9481 since it is 9-bit with CS.
+// otherwise I will forget about bidirectional read on ILI9481.
+//
+// ILI9481 is painful for AVR, F103 to write
+// ILI9481 is painful for everything to read (except F072, L476)
+//
+// Everything else with 8-bit SPI is fine.
+// F072, L476, K20 4-16 bit SPI. SAM3X 8-16 bit.
+//
+// It looks difficult to mod the ST7789 board for CS.
+// We can read hardware registers if we do EXACTLY the correct SCK clocks.
+// Since readGRAM() is unlimited,  we must use CS to stop a read sequence
+
 #include <SPI.h>
 
 #if defined(ESP32)
@@ -21,6 +45,13 @@
 #define NO_CS_PIN PA3
 #define MOSI_PIN  PB15
 #define SCK_PIN   PB13
+#elif defined(ARDUINO_NUCLEO64) //
+#define RESET_PIN PA9
+#define CD_PIN    PC7
+#define CS_PIN    PB6
+#define NO_CS_PIN PA8
+#define MOSI_PIN  PA7
+#define SCK_PIN   PA5
 #elif defined(__AVR_ATmega328P__)
 #define RESET_PIN PB0
 #define CD_PIN    PB1
@@ -112,6 +143,51 @@ static SPISettings settings(12000000, MSBFIRST, SPI_MODE3);
 #endif
 
 #define write8 xchg8
+
+#if defined(__ARDUINO_ARCH_STM32)
+#define SPI_ON(reg, x) {SPI1->CR1 &= ~(1<<6); reg |= (x); SPI1->CR1 |= (1<<6);}
+#define SPI_OFF(reg, x) {SPI1->CR1 &= ~(1<<6); reg &= ~(x); SPI1->CR1 |= (1<<6);}
+
+void SDIO_INMODE() 
+{
+    while(SPI1->SR & 0x01) SPI1->DR;  //eat
+    SPI_ON(SPI1->CR1, (1<<15)|(0<<14));  //BIDIOE RX
+}
+
+void SDIO_OUTMODE() 
+{
+    SPI_OFF(SPI1->CR1, (1<<15)|(1<<14));  //NORMAL
+}
+
+static uint32_t readbits(uint8_t bits)
+{
+    uint32_t ret = 0;
+    uint8_t c;
+    while (bits >= 8) {
+        ret <<= 8;
+        READ8(c);
+        ret |= c;
+        bits -= 8;
+    }
+    return ret;
+}
+#else
+#define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN;SCK_OUTPUT;}    //no braces
+//#define SDIO_OUTMODE() {MOSI_OUTPUT;SCK_OUTPUT;SPI.beginTransaction(settings);}
+#define SDIO_OUTMODE() {SPI.beginTransaction(settings);}
+static uint32_t readbits(uint8_t bits)
+{
+    uint32_t ret = 0;
+    while (bits--) {
+        ret <<= 1;
+        SCK_LO;   //MODE3
+        if (PIN_READ(SPI_PORT, MOSI_PIN)) ret++;
+        SCK_HI;
+    }
+    return ret;
+}
+#endif
+
 static inline uint8_t xchg8(uint8_t c)
 {
     WRITE8(c);
