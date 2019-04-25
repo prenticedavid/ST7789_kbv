@@ -333,7 +333,7 @@ static const uint8_t PROGMEM table1351[] = {
     0xBE, 1, 0x05,       //VCOMH
     0xA6, 0,             //NORMAL
     0xC1, 3, 0xC8, 0x80, 0xC8, //CONTRASTABC
-    0xC7, 1, 0x0F,       //CONTRASTMASTER
+    0xC7, 1, 0x07,       //CONTRASTMASTER [0F]
     0xB4, 3, 0xA0, 0xB5, 0x55, //SETVSL
     0xB6, 1, 0x01,       //PRECHARGE2
     0xAF, 0,             //display on
