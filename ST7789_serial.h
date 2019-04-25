@@ -45,13 +45,19 @@
 #define NO_CS_PIN PA3
 #define MOSI_PIN  PB15
 #define SCK_PIN   PB13
-#elif defined(ARDUINO_NUCLEO64) //
-#define RESET_PIN PA9
-#define CD_PIN    PC7
-#define CS_PIN    PB6
-#define NO_CS_PIN PA8
-#define MOSI_PIN  PA7
-#define SCK_PIN   PA5
+#elif 0 && defined(ARDUINO_NUCLEO_L476RG) //disable
+#warning L476 CS on GPIOB
+#define RESET_PIN 9 //PA9
+#define CD_PIN    7 //PC7
+#define CS_PIN    6 //PB6
+#define NO_CS_PIN 8 //PA8
+#define MOSI_PIN  7 //PA7
+#define SCK_PIN   5 //PA5
+#define RESET_PORT GPIOA
+#define CD_PORT GPIOC
+#define CS_PORT GPIOB
+#define NO_CS_PORT GPIOA
+#define SPI_PORT GPIOA
 #elif defined(__AVR_ATmega328P__)
 #define RESET_PIN PB0
 #define CD_PIN    PB1
@@ -85,6 +91,13 @@
 #define PIN_OUTPUT(p, b)     *(&p-1) |= (1<<(b))
 #define PIN_INPUT(p, b)      *(&p-1) &= ~(1<<(b))
 #define PIN_READ(p, b)       (*(&p+1) & (1<<(b)))
+#elif 0 && defined(ARDUINO_NUCLEO_L476RG) //disable 
+#define PIN_MODE2(reg, pin, mode) reg=(reg&~(0x3<<((pin)<<1)))|(mode<<((pin)<<1))
+#define PIN_HIGH(port, pin)   (port)->BSRR = (1<<(pin))
+#define PIN_LOW(port, pin)    (port)->BSRR = (1<<((pin)+16))
+#define PIN_OUTPUT(port, pin) PIN_MODE2((port)->MODER, pin, 0x1)
+#define PIN_INPUT(port, pin)  PIN_MODE2((port)->MODER, pin, 0x0)   //.kbv check this
+#define PIN_READ(port, pin)   ((port)->IDR & (1<<(pin)))
 #else
 #define PIN_LOW(p, b)        digitalWrite(b, LOW)
 #define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
@@ -125,26 +138,26 @@ static SPISettings settings(12000000, MSBFIRST, SPI_MODE3);
 #if 1
 
 #if defined(__AVR_ATmega328P__)
-#define WRITE8(x)   { SPDR = x; }
+#define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
 #define READ8(c)    { while ((SPSR & 0x80) == 0) ; c = SPDR; }
-#define FLUSH()
+#define FLUSH()     { while (SPSR & 0x80) SPDR; }
 #elif defined(ARDUINO_ARCH_STM32)
-#warning ARDUINO_ARCH_STM32
+#warning ARDUINO_ARCH_STM32 WRITE8
 #define WRITE8(x)   { while( !(SPI1->SR & SPI_SR_TXE)) ; *(uint8_t *)&SPI1->DR = x; }
 #define READ8(c)    { while( !(SPI1->SR & SPI_SR_RXNE)) ; c = SPI1->DR; }
-#define FLUSH()     { while(SPI1->SR & 0x80) ; }
+#define FLUSH()     { while(SPI1->SR & 0x80) ; while(SPI1->SR & SPI_SR_RXNE) SPI1->DR; }
 #elif defined(ARDUINO_ARCH_SAMD)
 #warning ARDUINO_ARCH_SAMD
 #define WRITE8(x)   { while( !(SERCOM4->SPI.INTFLAG.bit.DRE)) ; SERCOM4->SPI.DATA.bit.DATA = x; }
 #define READ8(c)    { while( !(SERCOM4->SPI.INTFLAG.bit.RXC)) ; c = SERCOM4->SPI.DATA.bit.DATA; }
-#define FLUSH()     {  ; }
+#define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
 #else
 #define WRITE8(x)   { SPI.transfer(x); }
 #define READ8(c)    { }
 #define FLUSH()
 #endif
 
-#define write8 xchg8
+#define write8 WRITE8
 
 #if defined(__ARDUINO_ARCH_STM32)
 #define SPI_ON(reg, x) {SPI1->CR1 &= ~(1<<6); reg |= (x); SPI1->CR1 |= (1<<6);}
@@ -192,9 +205,10 @@ static uint32_t readbits(uint8_t bits)
 
 static inline uint8_t xchg8(uint8_t c)
 {
+    FLUSH();
     WRITE8(c);
     READ8(c);
-    FLUSH();
+//    FLUSH();
     return c;
 }
 static inline void write16_N(uint16_t x, int16_t n)
@@ -202,14 +216,14 @@ static inline void write16_N(uint16_t x, int16_t n)
     uint8_t h = x >> 8, l = x, dummy;
     WRITE8(h);
     while (--n) {
-        READ8(dummy);
+//        READ8(dummy);
         WRITE8(l);
-        READ8(dummy);
+//        READ8(dummy);
         WRITE8(h);
     }
-    READ8(dummy);
+//    READ8(dummy);
     WRITE8(l);
-    READ8(dummy);
+//    READ8(dummy);
     FLUSH();
 }
 static inline void write24_N(uint16_t color, int16_t n)
@@ -231,7 +245,7 @@ static inline void write24_N(uint16_t color, int16_t n)
     READ8(dummy);
     FLUSH();
 }
-#define WriteCmd(cmd) { CD_COMMAND; CS_ACTIVE; write8(cmd); CD_DATA; }
+#define WriteCmd(cmd) { CD_COMMAND; CS_ACTIVE; xchg8(cmd); CD_DATA; }
 #define WriteDat(dat) { write8(dat); }
 #define write16(x) { write16_N(x, 1); }
 static inline void write8_block(uint8_t *buf, int n)
