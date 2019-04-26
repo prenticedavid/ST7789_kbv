@@ -33,8 +33,23 @@ typedef uint32_t RWREG_t;
 #error unsupported target
 #endif
 
+//8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
+static SPISettings settings(12000000, MSBFIRST, SPI_MODE0); 
+
 static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
 static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
+
+#if 1
+#define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
+#define PIN_HIGH(p, b)       *spi ## p ## Port |= spi ## p ## PinSet
+#define PIN_READ(p, b)       (*spi ## p ## Port & spi ## p ## PinSet)
+#else
+#define PIN_LOW(p, b)        digitalWrite(b, LOW)
+#define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
+#define PIN_READ(p, b)       digitalRead(b)
+#endif
+#define PIN_OUTPUT(p, b)     pinMode(b, OUTPUT)
+#define PIN_INPUT(p, b)      pinMode(b, INPUT)
 
 #if defined(ESP32)
 #define RESET_PIN 12
@@ -65,18 +80,6 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define CS_PORT   NO_CS_PORT
 #endif
 
-#if 0
-#define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
-#define PIN_HIGH(p, b)       *spi ## p ## Port |= spi ## p ## PinSet
-#define PIN_READ(p, b)       (*spi ## p ## Port & spi ## p ## PinSet)
-#else
-#define PIN_LOW(p, b)        digitalWrite(b, LOW)
-#define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
-#define PIN_READ(p, b)       digitalRead(b)
-#endif
-#define PIN_OUTPUT(p, b)     pinMode(b, OUTPUT)
-#define PIN_INPUT(p, b)      pinMode(b, INPUT)
-
 #define CD_COMMAND PIN_LOW(cd, CD_PIN)
 #define CD_DATA    PIN_HIGH(cd, CD_PIN)
 #define CD_OUTPUT  PIN_OUTPUT(cd, CD_PIN)
@@ -104,9 +107,6 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 
 #define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
-//8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
-static SPISettings settings(8000000, MSBFIRST, SPI_MODE3); 
-
 #if defined(__AVR_ATmega328P__)
 #define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
 #define READ8(c)    { while ((SPSR & 0x80) == 0) ; c = SPDR; }
@@ -121,9 +121,9 @@ static SPISettings settings(8000000, MSBFIRST, SPI_MODE3);
 #define WRITE8(x)   { while(SERCOM4->SPI.INTFLAG.bit.DRE == 0) ; SERCOM4->SPI.DATA.bit.DATA = x; }
 #define XCHG8(x,c)  { WRITE8(x);while(SERCOM4->SPI.INTFLAG.bit.RXC == 0) ; c = SERCOM4->SPI.DATA.bit.DATA; }
 #define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
-#elif defined(_ARDUINO_SAM_DUE)
+#elif defined(ARDUINO_SAM_DUE)
 #warning ARDUINO_SAM_DUE
-#define WRITE8(x)   { while((SPI0->SPI_SR & (1<<1))== 0) ; SPI0->SPI_TDR = x; }
+#define WRITE8(x)   { while((SPI0->SPI_SR & (1<<1)) == 0) ; SPI0->SPI_TDR = x; }
 #define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & (1<<0)) == 0) ; c = SPI0->SPI_RDR; }
 #define FLUSH()     { while((SPI0->SPI_SR & (1<<9)) == 0) ; while(SPI0->SPI_SR & (1<<0)) SPI0->SPI_RDR; }
 #else
@@ -162,7 +162,8 @@ static inline uint8_t xchg8(uint8_t x)
 static inline void write16_N(uint16_t x, int16_t n)
 {
 #if defined(ESP8266) || defined(ESP32)
-    uint8_t color = x, hilo[2];
+    uint16_t color = x;
+    uint8_t hilo[2];
     hilo[0] = color >> 8;
     hilo[1] = color;
     SPI.writePattern(hilo, 2, (uint32_t)n);
