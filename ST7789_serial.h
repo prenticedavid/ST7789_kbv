@@ -65,24 +65,42 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define CS_PORT   NO_CS_PORT
 #endif
 
-#define CD_COMMAND *spicdPort &= ~spicdPinSet
-#define CD_DATA    *spicdPort |= spicdPinSet
-#define CD_OUTPUT  pinMode(CD_PIN, OUTPUT)
-#define CS_ACTIVE  *spicsPort &= ~spicsPinSet
-#define CS_IDLE    *spicsPort |= spicsPinSet
-#define CS_OUTPUT  pinMode(CS_PIN, OUTPUT)
-#define RESET_ACTIVE  *spirstPort &= ~spirstPinSet
-#define RESET_IDLE    *spirstPort |= spirstPinSet
-#define RESET_OUTPUT  pinMode(RESET_PIN, OUTPUT)
+#if 0
+#define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
+#define PIN_HIGH(p, b)       *spi ## p ## Port |= spi ## p ## PinSet
+#define PIN_READ(p, b)       (*spi ## p ## Port & spi ## p ## PinSet)
+#else
+#define PIN_LOW(p, b)        digitalWrite(b, LOW)
+#define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
+#define PIN_READ(p, b)       digitalRead(b)
+#endif
+#define PIN_OUTPUT(p, b)     pinMode(b, OUTPUT)
+#define PIN_INPUT(p, b)      pinMode(b, INPUT)
+
+#define CD_COMMAND PIN_LOW(cd, CD_PIN)
+#define CD_DATA    PIN_HIGH(cd, CD_PIN)
+#define CD_OUTPUT  PIN_OUTPUT(cd, CD_PIN)
+#define CS_ACTIVE  PIN_LOW(cs, CS_PIN);
+#define CS_IDLE    PIN_HIGH(cs, CS_PIN);
+#define CS_OUTPUT  PIN_OUTPUT(cs, CS_PIN)
+#define RESET_ACTIVE  PIN_LOW(rst, RESET_PIN)
+#define RESET_IDLE    PIN_HIGH(rst, RESET_PIN)
+#define RESET_OUTPUT  PIN_OUTPUT(rst, RESET_PIN)
+#define SD_ACTIVE  PIN_LOW(sd, SD_PIN)
+#define SD_IDLE    PIN_HIGH(sd, SD_PIN)
+#define SD_OUTPUT  PIN_OUTPUT(sd, SD_PIN)
  // bit-bang macros for SDIO
-#define SCK_LO     *spiclkPort &= ~spiclkPinSet
-#define SCK_HI     *spiclkPort |= spiclkPinSet
-#define SCK_OUTPUT    pinMode(SCK_PIN, OUTPUT)
-#define MOSI_LO     *spimosiPort &= ~spimosiPinSet
-#define MOSI_HI     *spimosiPort |= spimosiPinSet
-#define MOSI_OUTPUT pinMode(MOSI_PIN, OUTPUT)
-#define MOSI_IN  pinMode(MOSI_PIN, INPUT)  //AVR is happier but still glitches
-#define MOSI_READ   (*spimosiPort & spimosiPinSet)
+#define SCK_LO     PIN_LOW(clk, SCK_PIN)
+#define SCK_HI     PIN_HIGH(clk, SCK_PIN)
+#define SCK_OUTPUT PIN_OUTPUT(clk, SCK_PIN)
+#define MOSI_LO    PIN_LOW(mosi, MOSI_PIN)
+#define MOSI_HI    PIN_HIGH(mosi, MOSI_PIN)
+#define MOSI_OUTPUT PIN_OUTPUT(mosi, MOSI_PIN)
+#define MOSI_IN    PIN_INPUT(mosi, MOSI_PIN)
+#define LED_LO     PIN_LOW(led, LED_PIN)
+#define LED_HI     PIN_HIGH(led, LED_PIN)
+#define LED_OUT    PIN_OUTPUT(led, LED_PIN)
+#define MOSI_READ  PIN_READ(mosi, MOSI_PIN)
 
 #define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
@@ -103,6 +121,11 @@ static SPISettings settings(8000000, MSBFIRST, SPI_MODE3);
 #define WRITE8(x)   { while(SERCOM4->SPI.INTFLAG.bit.DRE == 0) ; SERCOM4->SPI.DATA.bit.DATA = x; }
 #define XCHG8(x,c)  { WRITE8(x);while(SERCOM4->SPI.INTFLAG.bit.RXC == 0) ; c = SERCOM4->SPI.DATA.bit.DATA; }
 #define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
+#elif defined(_ARDUINO_SAM_DUE)
+#warning ARDUINO_SAM_DUE
+#define WRITE8(x)   { while((SPI0->SPI_SR & (1<<1))== 0) ; SPI0->SPI_TDR = x; }
+#define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & (1<<0)) == 0) ; c = SPI0->SPI_RDR; }
+#define FLUSH()     { while((SPI0->SPI_SR & (1<<9)) == 0) ; while(SPI0->SPI_SR & (1<<0)) SPI0->SPI_RDR; }
 #else
 #define WRITE8(x)   { SPI.transfer(x); }
 #define XCHG8(x,c)  { c = SPI.transfer(x); }
