@@ -1,4 +1,55 @@
+// ST7735, ILI9163, ST7789, ILI9488 use bidirectional SDA pin
+// linking MOSI, MISO with a 470R is too big a load on SD card
+// and you still have a noticeable phase shift from the wiring capacitance.
+//
+// Only STM32 can do bidirectional.   AVR, SAM, SAMD, ESP can not.  
+// SAM, SAMD, K20, ESP, F072, L467, can do 9 bit.   AVR, F103, F401, F446 can not.
+//
+// L476 can do BIDIMODE with a good CS.  But it still clocks an "extra" byte.
+// ST7735 requires 1 dummy clock cycle when reading GRAM.
+// so we might just as well bit-bash on smaller controllers.
+//
+// I will try full L476 hardware on ILI9481 since it is 9-bit with CS.
+// otherwise I will forget about bidirectional read on ILI9481.
+//
+// ILI9481 is painful for AVR, F103 to write
+// ILI9481 is painful for everything to read (except F072, L476)
+//
+// Everything else with 8-bit SPI is fine.
+// F072, L476, K20 4-16 bit SPI. SAM3X 8-16 bit.
+//
+// It looks difficult to mod the ST7789 board for CS.
+// We can read hardware registers if we do EXACTLY the correct SCK clocks.
+// Since readGRAM() is unlimited,  we must use CS to stop a read sequence
+
 #include <SPI.h>
+
+#if 0
+#elif defined(__AVR__) || defined(CORE_TEENSY)
+typedef uint8_t RWREG_t;
+#elif defined(__arm__) || defined(ESP8266) || defined(ESP32)
+typedef uint32_t RWREG_t;
+#else
+#error unsupported target
+#endif
+
+//8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
+static SPISettings settings(12000000, MSBFIRST, SPI_MODE0); 
+
+static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
+static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
+
+#if 1
+#define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
+#define PIN_HIGH(p, b)       *spi ## p ## Port |= spi ## p ## PinSet
+#define PIN_READ(p, b)       (*spi ## p ## Port & spi ## p ## PinSet)
+#else
+#define PIN_LOW(p, b)        digitalWrite(b, LOW)
+#define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
+#define PIN_READ(p, b)       digitalRead(b)
+#endif
+#define PIN_OUTPUT(p, b)     pinMode(b, OUTPUT)
+#define PIN_INPUT(p, b)      pinMode(b, INPUT)
 
 #if defined(ESP32)
 #define RESET_PIN 12
@@ -14,25 +65,6 @@
 #define NO_CS_PIN D7
 #define MOSI_PIN  D11
 #define SCK_PIN   D13
-#elif defined(ARDUINO_BLUEPILL_F103C8) || defined(ARDUINO_GENERIC_STM32F103C) //MY_BLUEPILL
-#define RESET_PIN PA9
-#define CD_PIN    PA10
-#define CS_PIN    PB12
-#define NO_CS_PIN PA3
-#define MOSI_PIN  PB15
-#define SCK_PIN   PB13
-#elif defined(__AVR_ATmega328P__)
-#define RESET_PIN PB0
-#define CD_PIN    PB1
-#define CS_PIN    PB2
-#define NO_CS_PIN PD7
-#define MOSI_PIN  PB3
-#define SCK_PIN   PB5
-#define RESET_PORT PORTB
-#define CD_PORT PORTB
-#define CS_PORT PORTB
-#define NO_CS_PORT PORTD
-#define SPI_PORT PORTB
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
@@ -48,112 +80,126 @@
 #define CS_PORT   NO_CS_PORT
 #endif
 
-#if defined(__AVR_ATmega328P__)
-#define PIN_LOW(p, b)        (p) &= ~(1<<(b))
-#define PIN_HIGH(p, b)       (p) |= (1<<(b))
-#define PIN_OUTPUT(p, b)     *(&p-1) |= (1<<(b))
-#else
-#define PIN_LOW(p, b)        digitalWrite(b, LOW)
-#define PIN_HIGH(p, b)       digitalWrite(b, HIGH)
-#define PIN_OUTPUT(p, b)     pinMode(b, OUTPUT)
-#define PIN_INPUT(p, b)      pinMode(b, INPUT_PULLUP)
-#define PIN_READ(p, b)       digitalRead(b)
-#endif
-
-#define CD_COMMAND PIN_LOW(CD_PORT, CD_PIN)
-#define CD_DATA    PIN_HIGH(CD_PORT, CD_PIN)
-#define CD_OUTPUT  PIN_OUTPUT(CD_PORT, CD_PIN)
-#define CS_ACTIVE  PIN_LOW(CS_PORT, CS_PIN);
-#define CS_IDLE    PIN_HIGH(CS_PORT, CS_PIN);
-#define CS_OUTPUT  PIN_OUTPUT(CS_PORT, CS_PIN)
-#define RESET_ACTIVE  PIN_LOW(RESET_PORT, RESET_PIN)
-#define RESET_IDLE    PIN_HIGH(RESET_PORT, RESET_PIN)
-#define RESET_OUTPUT  PIN_OUTPUT(RESET_PORT, RESET_PIN)
-#define SD_ACTIVE  PIN_LOW(SD_PORT, SD_PIN)
-#define SD_IDLE    PIN_HIGH(SD_PORT, SD_PIN)
-#define SD_OUTPUT  PIN_OUTPUT(SD_PORT, SD_PIN)
+#define CD_COMMAND PIN_LOW(cd, CD_PIN)
+#define CD_DATA    PIN_HIGH(cd, CD_PIN)
+#define CD_OUTPUT  PIN_OUTPUT(cd, CD_PIN)
+#define CS_ACTIVE  PIN_LOW(cs, CS_PIN);
+#define CS_IDLE    PIN_HIGH(cs, CS_PIN);
+#define CS_OUTPUT  PIN_OUTPUT(cs, CS_PIN)
+#define RESET_ACTIVE  PIN_LOW(rst, RESET_PIN)
+#define RESET_IDLE    PIN_HIGH(rst, RESET_PIN)
+#define RESET_OUTPUT  PIN_OUTPUT(rst, RESET_PIN)
+#define SD_ACTIVE  PIN_LOW(sd, SD_PIN)
+#define SD_IDLE    PIN_HIGH(sd, SD_PIN)
+#define SD_OUTPUT  PIN_OUTPUT(sd, SD_PIN)
  // bit-bang macros for SDIO
-#define SCK_LO     PIN_LOW(SPI_PORT, SCK_PIN)
-#define SCK_HI     PIN_HIGH(SPI_PORT, SCK_PIN)
-#define SCK_OUTPUT    PIN_OUTPUT(SPI_PORT, SCK_PIN)
-#define MOSI_LO    PIN_LOW(SPI_PORT, MOSI_PIN)
-#define MOSI_HI    PIN_HIGH(SPI_PORT, MOSI_PIN)
-#define MOSI_OUTPUT   PIN_OUTPUT(SPI_PORT, MOSI_PIN)
-#define MOSI_IN    PIN_INPUT(SPI_PORT, MOSI_PIN)
-#define LED_LO     PIN_LOW(LED_PORT, LED_PIN)
-#define LED_HI     PIN_HIGH(LED_PORT, LED_PIN)
-#define LED_OUT    PIN_OUTPUT(LED_PORT, LED_PIN)
+#define SCK_LO     PIN_LOW(clk, SCK_PIN)
+#define SCK_HI     PIN_HIGH(clk, SCK_PIN)
+#define SCK_OUTPUT PIN_OUTPUT(clk, SCK_PIN)
+#define MOSI_LO    PIN_LOW(mosi, MOSI_PIN)
+#define MOSI_HI    PIN_HIGH(mosi, MOSI_PIN)
+#define MOSI_OUTPUT PIN_OUTPUT(mosi, MOSI_PIN)
+#define MOSI_IN    PIN_INPUT(mosi, MOSI_PIN)
+#define LED_LO     PIN_LOW(led, LED_PIN)
+#define LED_HI     PIN_HIGH(led, LED_PIN)
+#define LED_OUT    PIN_OUTPUT(led, LED_PIN)
+#define MOSI_READ  PIN_READ(mosi, MOSI_PIN)
 
 #define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
-//8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
-static SPISettings settings(12000000, MSBFIRST, SPI_MODE3);
-
-#if 1
-
 #if defined(__AVR_ATmega328P__)
-#define WRITE8(x)   { SPDR = x; }
-#define READ8(c)    { while ((SPSR & 0x80) == 0) ; c = SPDR; }
-#define FLUSH()
+#define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
+#define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
+#define FLUSH()     { while (SPSR & 0x80) SPDR; }
 #elif defined(ARDUINO_ARCH_STM32)
-#warning ARDUINO_ARCH_STM32
+#warning ARDUINO_ARCH_STM32 WRITE8
 #define WRITE8(x)   { while( !(SPI1->SR & SPI_SR_TXE)) ; *(uint8_t *)&SPI1->DR = x; }
-#define READ8(c)    { while( !(SPI1->SR & SPI_SR_RXNE)) ; c = SPI1->DR; }
-#define FLUSH()     { while(SPI1->SR & 0x80) ; }
+#define XCHG8(x,c)  { WRITE8(x);while( !(SPI1->SR & SPI_SR_RXNE)) ; c = SPI1->DR; }
+#define FLUSH()     { while(SPI1->SR & 0x80) ; while(SPI1->SR & SPI_SR_RXNE) SPI1->DR; }
 #elif defined(ARDUINO_ARCH_SAMD)
 #warning ARDUINO_ARCH_SAMD
-#define WRITE8(x)   { while( !(SERCOM4->SPI.INTFLAG.bit.DRE)) ; SERCOM4->SPI.DATA.bit.DATA = x; }
-#define READ8(c)    { while( !(SERCOM4->SPI.INTFLAG.bit.RXC)) ; c = SERCOM4->SPI.DATA.bit.DATA; }
-#define FLUSH()     {  ; }
+#define WRITE8(x)   { while(SERCOM4->SPI.INTFLAG.bit.DRE == 0) ; SERCOM4->SPI.DATA.bit.DATA = x; }
+#define XCHG8(x,c)  { WRITE8(x);while(SERCOM4->SPI.INTFLAG.bit.RXC == 0) ; c = SERCOM4->SPI.DATA.bit.DATA; }
+#define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
+#elif defined(_ARDUINO_SAM_DUE)  //this does not work
+#warning ARDUINO_SAM_DUE
+#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = x; }
+#define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & SPI_SR_RDRF) == 0) ; c = SPI0->SPI_RDR; }
+#define FLUSH()     { while((SPI0->SPI_SR & SPI_SR_TXEMPTY) == 0) ; while(SPI0->SPI_SR & SPI_SR_RDRF) SPI0->SPI_RDR; }
 #else
 #define WRITE8(x)   { SPI.transfer(x); }
-#define READ8(c)    { }
+#define XCHG8(x,c)  { c = SPI.transfer(x); }
 #define FLUSH()
 #endif
 
-#define write8 xchg8
-static inline uint8_t xchg8(uint8_t c)
+#define write8 WRITE8
+
+#if defined(AVR)
+#define SDIO_INMODE()  {SPCR = 0; MOSI_IN; SCK_OUTPUT;}
+#else
+#define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN;SCK_OUTPUT;}
+#endif
+#define SDIO_OUTMODE() {MOSI_OUTPUT;SCK_OUTPUT;SPI.beginTransaction(settings);}
+//#define SDIO_OUTMODE() {SPI.beginTransaction(settings);}
+static uint32_t readbits(uint8_t bits)
 {
-    WRITE8(c);
-    READ8(c);
-    FLUSH();
+    uint32_t ret = 0;
+    while (bits--) { //L476=4MHz, 328P=400kHz
+        ret <<= 1;
+        SCK_LO;   //MODE3
+        SCK_HI;
+        if (MOSI_READ) ret++;
+    }
+    return ret;
+}
+
+static inline uint8_t xchg8(uint8_t x)
+{
+    uint8_t c;
+    XCHG8(x, c);
     return c;
 }
 static inline void write16_N(uint16_t x, int16_t n)
 {
+#if defined(ESP8266) || defined(ESP32)
+    uint16_t color = x;
+    uint8_t hilo[2];
+    hilo[0] = color >> 8;
+    hilo[1] = color;
+    SPI.writePattern(hilo, 2, (uint32_t)n);
+#else
     uint8_t h = x >> 8, l = x, dummy;
     WRITE8(h);
     while (--n) {
-        READ8(dummy);
         WRITE8(l);
-        READ8(dummy);
         WRITE8(h);
     }
-    READ8(dummy);
     WRITE8(l);
-    READ8(dummy);
     FLUSH();
+#endif
 }
 static inline void write24_N(uint16_t color, int16_t n)
 {
-	uint8_t r = color >> 8, g = (color >> 3), b = color << 3, dummy;
+#if defined(ESP8266) || defined(ESP32)
+    uint8_t rgb[3];
+    rgb[0] = color >> 8;
+    rgb[1] = color >> 3;
+    rgb[2] = color << 3;
+    SPI.writePattern(rgb, 3, (uint32_t)n);
+#else
+    uint8_t r = color >> 8, g = (color >> 3), b = color << 3, dummy;
     WRITE8(r);
     while (--n) {
-        READ8(dummy);
         WRITE8(g);
-        READ8(dummy);
         WRITE8(b);
-        READ8(dummy);
         WRITE8(r);
     }
-    READ8(dummy);
     WRITE8(g);
-    READ8(dummy);
     WRITE8(b);
-    READ8(dummy);
     FLUSH();
+#endif
 }
-#define WriteCmd(cmd) { CD_COMMAND; CS_ACTIVE; write8(cmd); CD_DATA; }
+#define WriteCmd(cmd) { CD_COMMAND; CS_ACTIVE; xchg8(cmd); CD_DATA; }
 #define WriteDat(dat) { write8(dat); }
 #define write16(x) { write16_N(x, 1); }
 static inline void write8_block(uint8_t *buf, int n)
@@ -162,6 +208,16 @@ static inline void write8_block(uint8_t *buf, int n)
 }
 static void INIT(void)
 {
+    spicsPort = portOutputRegister(digitalPinToPort(CS_PIN));
+    spicsPinSet = digitalPinToBitMask(CS_PIN);
+    spicdPort = portOutputRegister(digitalPinToPort(CD_PIN));
+    spicdPinSet = digitalPinToBitMask(CD_PIN);
+    spimosiPort = portInputRegister(digitalPinToPort(MOSI_PIN));
+    spimosiPinSet = digitalPinToBitMask(MOSI_PIN);
+    spiclkPort = portOutputRegister(digitalPinToPort(SCK_PIN));
+    spiclkPinSet = digitalPinToBitMask(SCK_PIN);
+    spirstPort = portOutputRegister(digitalPinToPort(RESET_PIN));
+    spirstPinSet = digitalPinToBitMask(RESET_PIN);
     CS_IDLE;
     RESET_IDLE;
     CS_OUTPUT;
@@ -171,84 +227,7 @@ static void INIT(void)
     MOSI_OUTPUT;
     SCK_OUTPUT;
     SCK_HI;
+    SPI.endTransaction();  //ESP32 seems to require this
     SPI.begin();
     SPI.beginTransaction(settings);
 }
-#else
-static inline void write9(uint8_t c, uint8_t dc)
-{
-#if defined(ESP32) && USE_SPI && USE_9BIT
-    uint32_t out, d = c;
-    if (dc) d |= 0x100;
-    d <<= 7;    //shift to nearest byte boundary. remove mask from HAL function.
-    //alternatively use regular user values.  let HAL shift to byte boundary.
-    SPI.transferBits(d, NULL, 9);
-    return;
-#endif
-#if USE_9BIT
-    if (dc) MOSI_HI;
-    else MOSI_LO;
-    SCK_LO;
-    SCK_HI;
-#else
-    if (dc) CD_DATA;
-    else CD_COMMAND;
-#endif
-#if USE_SPI
-    SPI.transfer(c);
-#else
-    for (int i = 0; i < 8; i++) {
-        if (c & 0x80) MOSI_HI;
-        else MOSI_LO;
-        SCK_LO;
-        SCK_HI;
-        c <<= 1;
-    }
-#endif
-#if !USE_9BIT
-    CD_DATA; //.kbv
-#endif
-}
-
-static inline void write8_block(uint8_t *buf, int n)
-{
-#if USE_SPI && !USE_9BIT
-    CD_DATA;
-#if defined(__STM32F1__)  //weird maple
-    SPI.write(buf, n);
-#else
-    SPI.transfer(buf, n);
-#endif
-#else
-    while (n--) write9(*buf++, 1);
-#endif
-}
-
-static inline void WriteCmd(uint8_t c)
-{
-    CS_ACTIVE;
-    write9(c, 0);
-}
-
-static inline void WriteDat(uint8_t c)
-{
-    write9(c, 1);
-}
-
-static void INIT(void)
-{
-    CS_IDLE;
-    RESET_IDLE;
-    CS_OUTPUT;
-    RESET_OUTPUT;
-    CD_OUTPUT;
-    CD_DATA;
-    MOSI_OUTPUT;
-    SCK_OUTPUT;
-    SCK_HI;
-#if USE_SPI
-    SPI.begin();
-    SPI.beginTransaction(settings);
-#endif
-}
-#endif

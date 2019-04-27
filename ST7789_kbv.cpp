@@ -49,24 +49,32 @@ void ST7789_kbv::pushCommand(uint16_t cmd, uint8_t * block, int8_t N)
     FLUSH_IDLE;
 }
 
-uint8_t ST7789_kbv::readReg8(uint8_t reg, uint8_t dat)
+uint32_t ST7789_kbv::readReg32(uint16_t reg)
 {
-    uint8_t ret;
+    uint32_t ret;
+    uint8_t bits = 8;
+    if (reg == 4) bits = 25;
+    if (reg == 9) bits = 33;
     WriteCmd(reg);
-    delay(1);
-    ret = xchg8(dat);           //only safe to read @ SCK=16MHz
+    SDIO_INMODE();
+    ret = readbits(bits);
+    SDIO_OUTMODE();
     FLUSH_IDLE;
-    return ret;
+    return ret;	
 }
 
-uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx)         //this is the same as Adafruit_ILI9488
+uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx) //this is the same as Adafruit_ILI9341
 {
     uint8_t SPIREAD_CMD = (_lcd_ID == 0x9341) ? 0xD9 : 0xFB;
     uint8_t SPIREAD_EN  = (_lcd_ID == 0x9341) ? 0x10 : 0x80;
-    readReg8(SPIREAD_CMD, SPIREAD_EN | idx);   //SPI_READ, SPI_READ_EN
-    delay(1);
-    uint8_t ret = readReg8(reg, 0x00);
-    readReg8(SPIREAD_CMD, 0);   //ILI9488 MUST disable afterwards
+    uint8_t off = 0;
+    uint8_t ret;
+    bool is_sekret = (_lcd_ID == 0x9341 || _lcd_ID == 0x9488);
+    SPIREAD_EN |= idx;
+    if (is_sekret) pushCommand(SPIREAD_CMD, &SPIREAD_EN, 1); //special for 9341, 9488
+    WriteCmd(reg);
+    ret = xchg8(0xFF);                       //only safe to read @ SCK=16MHz
+    if (is_sekret) pushCommand(SPIREAD_CMD, &off, 1);        //ILI9488 MUST disable afterwards
     return ret;
 }
 
@@ -90,16 +98,30 @@ int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, 
 {
     uint8_t r, g, b;
     int16_t n = w * h;    // we are NEVER going to read > 32k pixels at once
+#if defined(USE_NO_CS)
+    // might try ILI9341 without CS and WEMODE=0
+    return -1;
+#endif
     setAddrWindow(x, y, x + w - 1, y + h - 1);
     WriteCmd(0x2E);
-
-    // needs 1 dummy read
-    r = xchg8(0xFF);
-    while (n-- > 0) {
+    if (_lcd_ID == 0x9341 || _lcd_ID == 0x9488) {
         r = xchg8(0xFF);
-        g = xchg8(0xFF);
-        b = xchg8(0xFF);
-        *block++ = color565(r, g, b);
+        while (n-- > 0) {
+            r = xchg8(0xFF);
+            g = xchg8(0xFF);
+            b = xchg8(0xFF);
+            *block++ = color565(r, g, b);
+        }
+    } else {
+        SDIO_INMODE();
+        readbits(8 + (_lcd_ID == 0x7735));
+        while (n-- > 0) {
+            r = readbits(8);
+            g = readbits(8);
+            b = readbits(8);
+            *block++ = color565(r, g, b);
+        }
+        SDIO_OUTMODE();
     }
     FLUSH_IDLE;
     setAddrWindow(0, 0, width() - 1, height() - 1);
@@ -311,7 +333,7 @@ static const uint8_t PROGMEM table1351[] = {
     0xBE, 1, 0x05,       //VCOMH
     0xA6, 0,             //NORMAL
     0xC1, 3, 0xC8, 0x80, 0xC8, //CONTRASTABC
-    0xC7, 1, 0x0F,       //CONTRASTMASTER
+    0xC7, 1, 0x07,       //CONTRASTMASTER [0F]
     0xB4, 3, 0xA0, 0xB5, 0x55, //SETVSL
     0xB6, 1, 0x01,       //PRECHARGE2
     0xAF, 0,             //display on
