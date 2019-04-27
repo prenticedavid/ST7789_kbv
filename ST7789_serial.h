@@ -109,7 +109,7 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 
 #if defined(__AVR_ATmega328P__)
 #define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
-#define READ8(c)    { while ((SPSR & 0x80) == 0) ; c = SPDR; }
+#define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
 #define FLUSH()     { while (SPSR & 0x80) SPDR; }
 #elif defined(ARDUINO_ARCH_STM32)
 #warning ARDUINO_ARCH_STM32 WRITE8
@@ -121,11 +121,11 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define WRITE8(x)   { while(SERCOM4->SPI.INTFLAG.bit.DRE == 0) ; SERCOM4->SPI.DATA.bit.DATA = x; }
 #define XCHG8(x,c)  { WRITE8(x);while(SERCOM4->SPI.INTFLAG.bit.RXC == 0) ; c = SERCOM4->SPI.DATA.bit.DATA; }
 #define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
-#elif defined(ARDUINO_SAM_DUE)
+#elif defined(_ARDUINO_SAM_DUE)  //this does not work
 #warning ARDUINO_SAM_DUE
-#define WRITE8(x)   { while((SPI0->SPI_SR & (1<<1)) == 0) ; SPI0->SPI_TDR = x; }
-#define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & (1<<0)) == 0) ; c = SPI0->SPI_RDR; }
-#define FLUSH()     { while((SPI0->SPI_SR & (1<<9)) == 0) ; while(SPI0->SPI_SR & (1<<0)) SPI0->SPI_RDR; }
+#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = x; }
+#define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & SPI_SR_RDRF) == 0) ; c = SPI0->SPI_RDR; }
+#define FLUSH()     { while((SPI0->SPI_SR & SPI_SR_TXEMPTY) == 0) ; while(SPI0->SPI_SR & SPI_SR_RDRF) SPI0->SPI_RDR; }
 #else
 #define WRITE8(x)   { SPI.transfer(x); }
 #define XCHG8(x,c)  { c = SPI.transfer(x); }
@@ -227,6 +227,7 @@ static void INIT(void)
     MOSI_OUTPUT;
     SCK_OUTPUT;
     SCK_HI;
+    SPI.endTransaction();  //ESP32 seems to require this
     SPI.begin();
     SPI.beginTransaction(settings);
 }
