@@ -121,9 +121,9 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define WRITE8(x)   { while(SERCOM4->SPI.INTFLAG.bit.DRE == 0) ; SERCOM4->SPI.DATA.bit.DATA = x; }
 #define XCHG8(x,c)  { WRITE8(x);while(SERCOM4->SPI.INTFLAG.bit.RXC == 0) ; c = SERCOM4->SPI.DATA.bit.DATA; }
 #define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
-#elif defined(_ARDUINO_SAM_DUE)  //this does not work
+#elif defined(ARDUINO_SAM_DUE)  //write is ok.  read fails
 #warning ARDUINO_SAM_DUE
-#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = x; }
+#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = x | SPI_PCS(3); }
 #define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & SPI_SR_RDRF) == 0) ; c = SPI0->SPI_RDR; }
 #define FLUSH()     { while((SPI0->SPI_SR & SPI_SR_TXEMPTY) == 0) ; while(SPI0->SPI_SR & SPI_SR_RDRF) SPI0->SPI_RDR; }
 #else
