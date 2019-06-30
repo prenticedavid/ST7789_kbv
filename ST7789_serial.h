@@ -34,7 +34,7 @@ typedef uint32_t RWREG_t;
 #endif
 
 //8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
-static SPISettings settings(12000000, MSBFIRST, SPI_MODE0); 
+static SPISettings settings(12000000, MSBFIRST, USE_MODE); 
 
 static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
 static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
@@ -107,11 +107,16 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 
 #define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
-#if defined(__AVR_ATmega328P__)
+#if 0
+#elif defined(__AVR_ATmega328P__)
 #define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
 #define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
 #define FLUSH()     { while (SPSR & 0x80) SPDR; }
-#elif defined(ARDUINO_ARCH_STM32)
+#elif defined(ARDUINO_AVR_NANO_EVERY)
+#define WRITE8(x)   { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; }
+#define XCHG8(x,c)  { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; c = SPI0_DATA; }
+#define FLUSH()     { while (SPI0_INTFLAGS & 0x80) SPI0_DATA; }
+#elif defined(_ARDUINO_ARCH_STM32)
 #warning ARDUINO_ARCH_STM32 WRITE8
 #define WRITE8(x)   { while( !(SPI1->SR & SPI_SR_TXE)) ; *(uint8_t *)&SPI1->DR = x; }
 #define XCHG8(x,c)  { WRITE8(x);while( !(SPI1->SR & SPI_SR_RXNE)) ; c = SPI1->DR; }
@@ -134,7 +139,10 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 
 #define write8 WRITE8
 
-#if defined(AVR)
+#if 0
+#elif defined(ARDUINO_AVR_NANO_EVERY)
+#define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN; SCK_OUTPUT;}
+#elif defined(AVR)
 #define SDIO_INMODE()  {SPCR = 0; MOSI_IN; SCK_OUTPUT;}
 #else
 #define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN;SCK_OUTPUT;}
@@ -146,9 +154,14 @@ static uint32_t readbits(uint8_t bits)
     uint32_t ret = 0;
     while (bits--) { //L476=4MHz, 328P=400kHz
         ret <<= 1;
+#if USE_MODE == SPI_MODE3
         SCK_LO;   //MODE3
+#endif
         SCK_HI;
         if (MOSI_READ) ret++;
+#if USE_MODE == SPI_MODE0
+        SCK_LO;   //MODE0
+#endif
     }
     return ret;
 }
@@ -226,7 +239,11 @@ static void INIT(void)
     CD_DATA;
     MOSI_OUTPUT;
     SCK_OUTPUT;
+#if USE_MODE == SPI_MODE3
     SCK_HI;
+#elif USE_MODE == SPI_MODE0
+    SCK_LO;                //probably reset default anyway
+#endif
     SPI.endTransaction();  //ESP32 seems to require this
     SPI.begin();
     SPI.beginTransaction(settings);
