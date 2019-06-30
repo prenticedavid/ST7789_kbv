@@ -3,6 +3,7 @@
 
 #include "ST7789_kbv.h"
 
+#define USE_MODE  SPI_MODE3
 #define USE_9BIT  0
 #define USE_SPI   1
 #define USE_666   0       //565 or 666
