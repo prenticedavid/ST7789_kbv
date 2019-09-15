@@ -1,13 +1,18 @@
 # ST7789_kbv
 Library for TFT SPI modules :
 
-ST7735   128x160 (and 128x128)<br />
 GC9101   128x128  
 ILI9163  128x128  
-ST7789   240x240 with no /CS pin  
+ILI9225  176x220  
 ILI9341  240x320  
 ILI9481  320x480  
 ILI9488  320x480  
+SSD1283A 132x132
+ST7735   128x160 (and 128x128)
+ST7789   240x240 with no /CS pin  
+<br />
+
+SSD1283A is UNTESTED.   Ebay boards are 130x130
 
 Some ST7735, GC9101, ILI9163 128x128 modules are configured for 128x160.     
 Use offset in constructor(ID, w, h, offset, xor) and xor to configure directions.  
