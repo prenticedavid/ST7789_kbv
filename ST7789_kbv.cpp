@@ -9,9 +9,13 @@
 #define USE_666   0       //565 or 666
 #define USE_ID    0x7735
 #define SUPPORT_1351      //inserts is1351 conditionals
+#define SUPPORT_9225      //
+#define SUPPORT_1283
 
 #include "ST7789_serial.h"
 //#include "serial_kbv.h"
+#include "ILI9225_reg.h"
+#define WriteCmdData(cmd, data16) { WriteCmd(cmd); write16(data16); }
 
 static bool is1351, use_666;
 
@@ -148,7 +152,36 @@ void ST7789_kbv::setRotation(uint8_t r)
     }
     mac = pgm_read_byte(mactable + ofs + rotation);
     mac ^= _lcd_xor;
-    pushCommand(madctl, &mac, 1);
+#if defined(SUPPORT_9225) || defined(SUPPORT_1283)
+    if (_lcd_ID == 0x9225) {
+        uint8_t d[2];
+        _MW = 0x22;
+        _MC = 0x37, _MP = 0x39;
+        if (r & 1) _MC = 0x39, _MP = 0x37;
+        mac ^= 0x40;
+        d[0] = 0x10;
+        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG
+        pushCommand(0x03, d, 2);
+        d[0] = mac >> 6;
+        d[1] = 0x1C;
+        pushCommand(0x01, d, 2); //DRVOUT
+    }
+    if (_lcd_ID == 0x1283) {
+        uint8_t d[2];
+        _MW = 0x22;
+        _MC = 0x44, _MP = 0x45;
+        if (r & 1) _MC = 0x45, _MP = 0x44;
+        mac ^= 0x40;
+        d[0] = 0x10;
+        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG
+        pushCommand(0x03, d, 2);
+        d[0] = mac >> 6;
+        d[1] = 0x1C;
+        pushCommand(0x01, d, 2); //DRVOUT
+    }
+    else 
+#endif
+        pushCommand(madctl, &mac, 1);
     vertScroll(0, HEIGHT, 0);
     if (_lcd_ID == 0x7789 && __OFFSET == 0) {
         uint8_t d[3] = {0x27, 0x00, 0x10};              //always use 320 scan lines
@@ -165,13 +198,21 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     if (rotation == 0) y += __OFFSET;
     if (rotation == 1) x += __OFFSET;
     bool is_9488 = (_lcd_ID == 0x9488);
-    if (is1351) x |= x << 8, y |= y << 8; //squeeze two 8-bits
+    if (is1351 || _lcd_ID == 0x1283) x |= x << 8, y |= y << 8; //squeeze two 8-bits
     WriteCmd(_MC);
     write16(x);
     if (is_9488) write16(x);
+    if (_lcd_ID == 0x9225) { WriteCmd(_MC); write16(x); }
     WriteCmd(_MP);
     write16(y);
     if (is_9488) write16(y);
+    if (_lcd_ID == 0x9225) { WriteCmd(_MP); write16(y); }
+#ifdef SUPPORT_9225
+    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) {
+        WriteCmd(rotation & 1 ? 0x21 : 0x20); write16(x);
+        WriteCmd(rotation & 1 ? 0x20 : 0x21); write16(y);
+    }
+#endif
     WriteCmd(_MW);
     writeColor(color, 1);
     FLUSH_IDLE;
@@ -181,13 +222,21 @@ void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
     if (rotation == 0) y += __OFFSET, y1 += __OFFSET;
     if (rotation == 1) x += __OFFSET, x1 += __OFFSET;
-    if (is1351) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
+    if (is1351 || _lcd_ID == 0x1283) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
     WriteCmd(_MC);
-    if (!is1351) write16(x); //1351 squeezes into x1
+    if (!is1351 && _lcd_ID != 0x1283) write16(x); //1351 squeezes into x1
+    if (_lcd_ID == 0x9225) WriteCmd(_MC - 1);
     write16(x1);
     WriteCmd(_MP);
-    if (!is1351) write16(y);
+    if (!is1351 && _lcd_ID != 0x1283) write16(y);
+    if (_lcd_ID == 0x9225) WriteCmd(_MP - 1);
     write16(y1);
+#ifdef SUPPORT_9225
+    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) {
+        WriteCmd(rotation & 1 ? 0x21 : 0x20); write16(x);
+        WriteCmd(rotation & 1 ? 0x20 : 0x21); write16(y);
+    }
+#endif
     FLUSH_IDLE;
 }
 
@@ -277,6 +326,7 @@ void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool b
 
 void ST7789_kbv::invertDisplay(bool i)
 {
+    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) return;
     uint8_t normal = (is1351) ? 0xA6 : 0x20;
     pushCommand(normal + i, NULL, 0);
 }
@@ -294,6 +344,22 @@ void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
     vsp = top + offset;  // vertical start position
     if (offset < 0)
         vsp += scrollines;          //keep in unsigned range
+#if defined(SUPPORT_9225) || defined(SUPPORT_1283)
+    if (_lcd_ID == 0x9225) {
+        uint16_t sea = top + scrollines - 1;
+        WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL1, sea);       //SEA
+        WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL2, top);       //SSA
+        WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL3, vsp - top);       //SST
+        FLUSH_IDLE;
+        return;
+    }
+    if (_lcd_ID == 0x1283) {   //UNTESTED
+        uint16_t sea = (top << 8) + scrollines - 1;
+        WriteCmdData(0x41, sea);       //SEA
+        FLUSH_IDLE;
+        return;
+    }
+#endif
     WriteCmd( 0x33);
     write16(top);        //TOP
     write16(scrollines); //VSA
@@ -436,6 +502,68 @@ const uint8_t PROGMEM ILI9488_regValues_kbv[] = {
     0xF7, 4, 0xA9, 0x51, 0x2C, 0x82,    //Adjustment Control 3 [A9 51 2C 82]
 };
 
+static const uint8_t ILI9225_regValues[] PROGMEM = {
+	/* Start Initial Sequence */
+	/* Set SS bit and direction output from S528 to S1 */
+	ILI9225_POWER_CTRL1, 2, 0x00, 0x00, // Set SAP,DSTB,STB
+	ILI9225_POWER_CTRL2, 2, 0x00, 0x00, // Set APON,PON,AON,VCI1EN,VC
+	ILI9225_POWER_CTRL3, 2, 0x00, 0x00, // Set BT,DC1,DC2,DC3
+	ILI9225_POWER_CTRL4, 2, 0x00, 0x00, // Set GVDD
+	ILI9225_POWER_CTRL5, 2, 0x00, 0x00, // Set VCOMH/VCOML voltage
+	TFTLCD_DELAY8, 40, 
+
+	// Power-on sequence
+	ILI9225_POWER_CTRL2, 2, 0x00, 0x18, // Set APON,PON,AON,VCI1EN,VC
+	ILI9225_POWER_CTRL3, 2, 0x61, 0x21, // Set BT,DC1,DC2,DC3
+	ILI9225_POWER_CTRL4, 2, 0x00, 0x6F, // Set GVDD   /*007F 0088 */
+	ILI9225_POWER_CTRL5, 2, 0x49, 0x5F, // Set VCOMH/VCOML voltage
+	ILI9225_POWER_CTRL1, 2, 0x08, 0x00, // Set SAP,DSTB,STB
+	TFTLCD_DELAY8, 10,
+	ILI9225_POWER_CTRL2, 2, 0x10, 0x3B, // Set APON,PON,AON,VCI1EN,VC
+	TFTLCD_DELAY8, 50,
+
+	ILI9225_DRIVER_OUTPUT_CTRL,  2, 0x01, 0x1C, // set the display line number and display direction
+	ILI9225_LCD_AC_DRIVING_CTRL, 2, 0x01, 0x00, // set 1 line inversion
+	ILI9225_ENTRY_MODE,          2, 0x10, 0x30, // set GRAM write direction and BGR=1.
+	ILI9225_DISP_CTRL1,          2, 0x00, 0x00, // Display off
+	ILI9225_BLANK_PERIOD_CTRL1,  2, 0x08, 0x08, // set the back porch and front porch
+	ILI9225_FRAME_CYCLE_CTRL,    2, 0x11, 0x00, // set the clocks number per line
+	ILI9225_INTERFACE_CTRL,      2, 0x00, 0x00, // CPU interface
+	ILI9225_OSC_CTRL,            2, 0x0, 0xD01, // Set Osc  /*0e01*/
+	ILI9225_VCI_RECYCLING,       2, 0x00, 0x20, // Set VCI recycling
+	ILI9225_DISP_CTRL1,          2, 0x00, 0x12, 
+	TFTLCD_DELAY8, 50, 
+	ILI9225_DISP_CTRL1,          2, 0x10, 0x17,
+};
+
+static const uint8_t SSD1283A_regValues[] PROGMEM =
+{
+    0x10, 2, 0x2F, 0x8E,
+    0x11, 2, 0x00, 0x0C,
+    0x07, 2, 0x00, 0x21,
+    0x28, 2, 0x00, 0x06,
+    0x28, 2, 0x00, 0x05,
+    0x27, 2, 0x05, 0x7F,
+    0x29, 2, 0x89, 0xA1,
+    0x00, 2, 0x00, 0x01,
+    TFTLCD_DELAY8, 100,
+    0x29, 2, 0x80, 0xB0,
+    TFTLCD_DELAY8, 30,
+    0x29, 2, 0xFF, 0xFE,
+    0x07, 2, 0x02, 0x23,
+    TFTLCD_DELAY8, 30,
+    0x07, 2, 0x02, 0x33,
+    0x01, 2, 0x21, 0x83,
+    0x03, 2, 0x68, 0x30,
+    0x2F, 2, 0xFF, 0xFF,
+    0x2C, 2, 0x80, 0x00,
+    0x27, 2, 0x05, 0x70,
+    0x02, 2, 0x03, 0x00,
+    0x0B, 2, 0x58, 0x0C,
+    0x12, 2, 0x06, 0x09,
+    0x13, 2, 0x31, 0x00,
+};
+
 static void init_table(const void *table, int16_t size)
 {
     uint8_t *p = (uint8_t *) table;
@@ -465,6 +593,12 @@ void ST7789_kbv::begin(uint16_t ID)
     use_666 = USE_666;
     _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;  //default MIPI registers
     switch (ID) {
+#ifdef SUPPORT_1283
+        case 0x1283:
+            table = SSD1283A_regValues;
+            size = sizeof(SSD1283A_regValues);
+            break;
+#endif
 #ifdef SUPPORT_1351
         case 0x1351:
             table = table1351;
@@ -491,6 +625,12 @@ void ST7789_kbv::begin(uint16_t ID)
             table = table9163C;
             size = sizeof(table9163C);
             break;
+#ifdef SUPPORT_9225
+        case 0x9225:
+            table = ILI9225_regValues;
+            size = sizeof(ILI9225_regValues);
+             break;
+#endif
         case 0x9341:
             table = ILI9341_regValues_2_4;
             size = sizeof(ILI9341_regValues_2_4);
@@ -509,10 +649,11 @@ void ST7789_kbv::begin(uint16_t ID)
     if (_lcd_xor == 0xFF) _lcd_xor = 0x00;   //default
 
     reset();
-    if (!is1351) init_table(&reset_off, sizeof(reset_off));
-    init_table(table, size);
-    if (!is1351) init_table(&wake_on, sizeof(wake_on));
-    if (!is1351) {
+    if (is1351 || _lcd_ID == 0x9225 || _lcd_ID == 0x1283) init_table(table, size); 
+    else {
+        init_table(&reset_off, sizeof(reset_off));
+        init_table(table, size);
+        init_table(&wake_on, sizeof(wake_on));
         uint8_t pixfmt = use_666 ? 0x66 : 0x55;
         pushCommand(0x3A, &pixfmt, 1);
     }
