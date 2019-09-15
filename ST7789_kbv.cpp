@@ -159,12 +159,12 @@ void ST7789_kbv::setRotation(uint8_t r)
         _MC = 0x37, _MP = 0x39;
         if (r & 1) _MC = 0x39, _MP = 0x37;
         mac ^= 0x40;
-        d[0] = 0x10;
-        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG
+        d[0] = 0x10;              //BGR=1
+        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG 0x1030
         pushCommand(0x03, d, 2);
-        d[0] = mac >> 6;
-        d[1] = 0x1C;
-        pushCommand(0x01, d, 2); //DRVOUT
+        d[0] = mac >> 6;          //
+        d[1] = 0x1C;              //NL=28
+        pushCommand(0x01, d, 2);  //DRVOUT 0x011C
     }
     if (_lcd_ID == 0x1283) {
         uint8_t d[2];
@@ -172,12 +172,12 @@ void ST7789_kbv::setRotation(uint8_t r)
         _MC = 0x44, _MP = 0x45;
         if (r & 1) _MC = 0x45, _MP = 0x44;
         mac ^= 0x40;
-        d[0] = 0x10;
-        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG
+        d[0] = 0x68;              // DFM=3, TRANS=1
+        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG 0x6830
         pushCommand(0x03, d, 2);
-        d[0] = mac >> 6;
-        d[1] = 0x1C;
-        pushCommand(0x01, d, 2); //DRVOUT
+        d[0] = (mac >> 6) | 0x20; //REV=1
+        d[1] = 0x83;              //MUX=131
+        pushCommand(0x01, d, 2);  //DRVOUT 0x2183
     }
     else 
 #endif
