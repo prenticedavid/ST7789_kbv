@@ -15,9 +15,15 @@
 #include "ST7789_serial.h"
 //#include "serial_kbv.h"
 #include "ILI9225_reg.h"
-#define WriteCmdData(cmd, data16) { WriteCmd(cmd); write16(data16); }
+void WriteCmdData(uint8_t cmd, uint16_t data16) 
+{
+    WriteCmd(cmd);
+    write16(data16);
+    FLUSH_IDLE;
+}
 
 static bool is1351, use_666;
+static uint16_t _drvout;
 
 static inline void writeColor(uint16_t color, uint32_t n)
 {
@@ -175,9 +181,9 @@ void ST7789_kbv::setRotation(uint8_t r)
         d[0] = 0x68;              // DFM=3, TRANS=1
         d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG 0x6830
         pushCommand(0x03, d, 2);
-        d[0] = (mac >> 6) | 0x20; //REV=1
-        d[1] = 0x83;              //MUX=131
-        pushCommand(0x01, d, 2);  //DRVOUT 0x2183
+        _drvout &= ~0x0300;       //REV=1
+        _drvout |= (mac >> 6) << 8;
+        WriteCmdData(0x01, _drvout);
     }
     else 
 #endif
@@ -326,7 +332,17 @@ void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool b
 
 void ST7789_kbv::invertDisplay(bool i)
 {
-    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) return;
+    //ILI9225 REV=0007.02 (DISPCTL1).   SSD1283A REV=0001.13 (DRVOUT)
+    if (_lcd_ID == 0x9225) {
+        WriteCmdData(0x07, i ? 0x1013 : 0x1017); 
+        return; 
+    }
+    if (_lcd_ID == 0x1283) {
+        if (i) _drvout &= ~0x2000;
+        else _drvout |= 0x2000;
+        WriteCmdData(0x01, _drvout);
+        return;
+    }
     uint8_t normal = (is1351) ? 0xA6 : 0x20;
     pushCommand(normal + i, NULL, 0);
 }
@@ -350,13 +366,11 @@ void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
         WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL1, sea);       //SEA
         WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL2, top);       //SSA
         WriteCmdData(ILI9225_VERTICAL_SCROLL_CTRL3, vsp - top);       //SST
-        FLUSH_IDLE;
         return;
     }
     if (_lcd_ID == 0x1283) {   //UNTESTED
         uint16_t sea = (top << 8) + scrollines - 1;
         WriteCmdData(0x41, sea);       //SEA
-        FLUSH_IDLE;
         return;
     }
 #endif
@@ -529,7 +543,7 @@ static const uint8_t ILI9225_regValues[] PROGMEM = {
 	ILI9225_BLANK_PERIOD_CTRL1,  2, 0x08, 0x08, // set the back porch and front porch
 	ILI9225_FRAME_CYCLE_CTRL,    2, 0x11, 0x00, // set the clocks number per line
 	ILI9225_INTERFACE_CTRL,      2, 0x00, 0x00, // CPU interface
-	ILI9225_OSC_CTRL,            2, 0x0, 0xD01, // Set Osc  /*0e01*/
+	ILI9225_OSC_CTRL,            2, 0x0D, 0x01, // Set Osc  /*0e01*/
 	ILI9225_VCI_RECYCLING,       2, 0x00, 0x20, // Set VCI recycling
 	ILI9225_DISP_CTRL1,          2, 0x00, 0x12, 
 	TFTLCD_DELAY8, 50, 
@@ -597,6 +611,7 @@ void ST7789_kbv::begin(uint16_t ID)
         case 0x1283:
             table = SSD1283A_regValues;
             size = sizeof(SSD1283A_regValues);
+            _drvout = 0x2183;
             break;
 #endif
 #ifdef SUPPORT_1351
