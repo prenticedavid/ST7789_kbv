@@ -177,7 +177,8 @@ void ST7789_kbv::setRotation(uint8_t r)
         _MW = 0x22;
         _MC = 0x44, _MP = 0x45;
         if (r & 1) _MC = 0x45, _MP = 0x44;
-        mac ^= 0x40;
+        if (r == 0 || r == 3) mac ^= 0x40;
+        else mac ^= 0x80;
         d[0] = 0x68;              // DFM=3, TRANS=1
         d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG 0x6830
         pushCommand(0x03, d, 2);
@@ -214,9 +215,14 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     if (is_9488) write16(y);
     if (_lcd_ID == 0x9225) { WriteCmd(_MP); write16(y); }
 #ifdef SUPPORT_9225
-    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) {
+    if (_lcd_ID == 0x9225) {
         WriteCmd(rotation & 1 ? 0x21 : 0x20); write16(x);
         WriteCmd(rotation & 1 ? 0x20 : 0x21); write16(y);
+    }
+    if (_lcd_ID == 0x1283) {
+        WriteCmd(0x21);
+        if (rotation & 1) { write8(x); write8(y); }
+        else { write8(y); write8(x); }
     }
 #endif
     WriteCmd(_MW);
@@ -228,7 +234,8 @@ void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
     if (rotation == 0) y += __OFFSET, y1 += __OFFSET;
     if (rotation == 1) x += __OFFSET, x1 += __OFFSET;
-    if (is1351 || _lcd_ID == 0x1283) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
+    if (is1351) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
+    if (_lcd_ID == 0x1283) x1 = (x1 << 8) | x, y1 = (y1 << 8) | y; //squeeze two 8-bits
     WriteCmd(_MC);
     if (!is1351 && _lcd_ID != 0x1283) write16(x); //1351 squeezes into x1
     if (_lcd_ID == 0x9225) WriteCmd(_MC - 1);
@@ -238,9 +245,14 @@ void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
     if (_lcd_ID == 0x9225) WriteCmd(_MP - 1);
     write16(y1);
 #ifdef SUPPORT_9225
-    if (_lcd_ID == 0x9225 || _lcd_ID == 0x1283) {
+    if (_lcd_ID == 0x9225) {
         WriteCmd(rotation & 1 ? 0x21 : 0x20); write16(x);
         WriteCmd(rotation & 1 ? 0x20 : 0x21); write16(y);
+    }
+    if (_lcd_ID == 0x1283) {
+        WriteCmd(0x21);
+        if (rotation & 1) { write8(x); write8(y); }
+        else { write8(y); write8(x); }
     }
 #endif
     FLUSH_IDLE;
@@ -369,8 +381,7 @@ void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
         return;
     }
     if (_lcd_ID == 0x1283) {   //UNTESTED
-        uint16_t sea = (top << 8) + scrollines - 1;
-        WriteCmdData(0x41, sea);       //SEA
+        WriteCmdData(0x41, vsp);       //VL1
         return;
     }
 #endif
