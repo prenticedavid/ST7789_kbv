@@ -59,7 +59,8 @@ class ST7789_kbv : public Adafruit_GFX {
 
     private:
         uint8_t  _lcd_xor, _MC, _MP, _MW;
-        uint16_t _lcd_ID, __OFFSET;
+        uint16_t _lcd_ID;
+        uint16_t __OFFSET, _xofs, _yofs;
 };
 
 // New color definitions.  thanks to Bodmer
