@@ -177,18 +177,22 @@ void ST7789_kbv::setRotation(uint8_t r)
         _MW = 0x22;
         _MC = 0x44, _MP = 0x45;
         if (r & 1) _MC = 0x45, _MP = 0x44;
-        if (r == 0 || r == 3) mac ^= 0x40;
-        else mac ^= 0x80;
-        d[0] = 0x68;              // DFM=3, TRANS=1
-        d[1] = mac & 0x20 ? 0x38 : 0x30; //ORG 0x6830
-        pushCommand(0x03, d, 2);
-        _drvout &= ~0x0300;       //REV=1
-        _drvout |= (mac >> 6) << 8;
+        _drvout &= ~0xCB00;       //REV=1
+        if (mac & 0x80) _drvout |= 0x0200;
+        if (mac & 0x40) _drvout |= 0x0100;
         WriteCmdData(0x01, _drvout);
+        d[0] = 0x68;              // DFM=3, OEDef=1, DMode=0
+        d[1] = mac & 0x20 ? 0x38 : 0x30; //AM 0x6830
+        if ((_drvout & 0x0100) != 0) d[1] &= ~0x10; //broken RL
+        pushCommand(0x03, d, 2);        
     }
     else 
 #endif
         pushCommand(madctl, &mac, 1);
+    if (r == 0) _xofs = 0, _yofs = 0; 
+    if (r == 1) _xofs = 0, _yofs = __OFFSET >> 8;  //DW 
+    if (r == 2) _xofs = __OFFSET >> 8, _yofs = __OFFSET & 0xFF; //DH, DW
+    if (r == 3) _xofs = __OFFSET & 0xFF, _yofs = 0; //DH
     vertScroll(0, HEIGHT, 0);
     if (_lcd_ID == 0x7789 && __OFFSET == 0) {
         uint8_t d[3] = {0x27, 0x00, 0x10};              //always use 320 scan lines
@@ -202,9 +206,13 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     // ILI934X just plots at edge if you try to write outside of the box:
     if (x < 0 || y < 0 || x >= width() || y >= height())
         return;
-    if (rotation == 0) y += __OFFSET;
-    if (rotation == 1) x += __OFFSET;
     bool is_9488 = (_lcd_ID == 0x9488);
+    if (_xofs) x += _xofs;
+    if (_yofs) y += _yofs;
+    if (_lcd_ID == 0x1283 && (_drvout & 0x0100) != 0) { //broken RL
+        if (rotation & 1) y = 131 - y;
+        else x = 131 - x;
+    }
     if (is1351 || _lcd_ID == 0x1283) x |= x << 8, y |= y << 8; //squeeze two 8-bits
     WriteCmd(_MC);
     write16(x);
@@ -232,8 +240,15 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
 
 void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
-    if (rotation == 0) y += __OFFSET, y1 += __OFFSET;
-    if (rotation == 1) x += __OFFSET, x1 += __OFFSET;
+    if (_xofs) x += _xofs, x1 += _xofs;
+    if (_yofs) y += _yofs, y1 += _yofs;
+#ifdef SUPPORT_9225
+    if (_lcd_ID == 0x1283 && (_drvout & 0x0100) != 0) { //broken RL
+        int16_t t;
+        if (rotation & 1) t = 131 - y, y = 131 - y1, y1 = t;
+        else t = 131 - x, x = 131 - x1, x1 = t;
+    }
+#endif
     if (is1351) x1 |= x << 8, y1 |= y << 8; //squeeze two 8-bits
     if (_lcd_ID == 0x1283) x1 = (x1 << 8) | x, y1 = (y1 << 8) | y; //squeeze two 8-bits
     WriteCmd(_MC);
@@ -344,6 +359,7 @@ void ST7789_kbv::pushColors(const uint8_t * block, int16_t n, bool first, bool b
 
 void ST7789_kbv::invertDisplay(bool i)
 {
+#ifdef SUPPORT_9225
     //ILI9225 REV=0007.02 (DISPCTL1).   SSD1283A REV=0001.13 (DRVOUT)
     if (_lcd_ID == 0x9225) {
         WriteCmdData(0x07, i ? 0x1013 : 0x1017); 
@@ -355,6 +371,7 @@ void ST7789_kbv::invertDisplay(bool i)
         WriteCmdData(0x01, _drvout);
         return;
     }
+#endif
     uint8_t normal = (is1351) ? 0xA6 : 0x20;
     pushCommand(normal + i, NULL, 0);
 }
@@ -365,10 +382,11 @@ void ST7789_kbv::vertScroll(int16_t top, int16_t scrollines, int16_t offset)
         pushCommand(0xA1, (uint8_t*)&offset, 1);
         return;
     }
-    if (rotation == 0 || rotation == 1) top += __OFFSET;
-    int16_t bfa = HEIGHT + __OFFSET - top - scrollines;  // Ilitek checks valid
+    uint8_t yofs = __OFFSET & 0xFF;   //unimplemented GateScan rows
+    if (rotation & 2) top += yofs;    //shift into view
+    int16_t bfa = HEIGHT + yofs - top - scrollines;  // Ilitek checks valid
     int16_t vsp;
-    if (_lcd_ID == 0x7789 && HEIGHT == 240) bfa += 80;
+    //if (_lcd_ID == 0x7789 && HEIGHT == 240) bfa += 80;
     vsp = top + offset;  // vertical start position
     if (offset < 0)
         vsp += scrollines;          //keep in unsigned range
@@ -563,12 +581,16 @@ static const uint8_t ILI9225_regValues[] PROGMEM = {
 
 static const uint8_t SSD1283A_regValues[] PROGMEM =
 {
-    0x10, 2, 0x2F, 0x8E,
-    0x11, 2, 0x00, 0x0C,
+    0x10, 2, 0x2F, 0x8E, //DCY=2, BTH=7, AP=7
+    0x11, 2, 0x00, 0x0C, //PU=1
     0x07, 2, 0x00, 0x21,
+    0x01, 2, 0x20, 0x81, //REV=1, RL=0, MUX=129
+    //0x16, 2, 0x83, 0x02, //XL=131, HBP=2
+    //0x17, 2, 0x04, 0x02, //VFP=4, VBP=2
+    //0x40, 2, 0x00, 0x00, //SCN=0
     0x28, 2, 0x00, 0x06,
     0x28, 2, 0x00, 0x05,
-    0x27, 2, 0x05, 0x7F,
+    0x27, 2, 0x05, 0x7F, //IU=7
     0x29, 2, 0x89, 0xA1,
     0x00, 2, 0x00, 0x01,
     TFTLCD_DELAY8, 100,
@@ -577,16 +599,16 @@ static const uint8_t SSD1283A_regValues[] PROGMEM =
     0x29, 2, 0xFF, 0xFE,
     0x07, 2, 0x02, 0x23,
     TFTLCD_DELAY8, 30,
-    0x07, 2, 0x02, 0x33,
-    0x01, 2, 0x21, 0x83,
-    0x03, 2, 0x68, 0x30,
-    0x2F, 2, 0xFF, 0xFF,
-    0x2C, 2, 0x80, 0x00,
-    0x27, 2, 0x05, 0x70,
-    0x02, 2, 0x03, 0x00,
-    0x0B, 2, 0x58, 0x0C,
-    0x12, 2, 0x06, 0x09,
-    0x13, 2, 0x31, 0x00,
+    0x07, 2, 0x02, 0x33, //VLE1=1, GON=1, DTE=1, D=3
+//    0x01, 2, 0x21, 0x83, //REV=1, RL=1, MUX=131
+    0x03, 2, 0x68, 0x30, //DFM=3, OEDef=1, ID=3,
+    //0x2F, 2, 0xFF, 0xFF, //?
+    0x2C, 2, 0x80, 0x00, //OSCR=8
+    0x27, 2, 0x05, 0x70, //IU=6
+    0x02, 2, 0x03, 0x00, //BC=1, EOR=1
+    0x0B, 2, 0x58, 0x0C, //NO=1, SDT=1, EQ=2, RTN=12
+    0x12, 2, 0x06, 0x09, //VRH=9
+    0x13, 2, 0x31, 0x00, //VCOMG=1, VDV=11
 };
 
 static void init_table(const void *table, int16_t size)
@@ -622,7 +644,7 @@ void ST7789_kbv::begin(uint16_t ID)
         case 0x1283:
             table = SSD1283A_regValues;
             size = sizeof(SSD1283A_regValues);
-            _drvout = 0x2183;
+            _drvout = 0x2183; //REV=1, CAD=0, BGR=0, RL=1, MUX=131
             break;
 #endif
 #ifdef SUPPORT_1351
@@ -642,7 +664,7 @@ void ST7789_kbv::begin(uint16_t ID)
             size = sizeof(ST7789_regValues);
             break;
         case 0x9101:
-            if (_lcd_xor == 0xFF) _lcd_xor = 0xD0;
+            //if (_lcd_xor == 0xFF) _lcd_xor = 0xD0;  //wrong ROT
             table = table7735S;
             size = sizeof(table7735S);
             break;
