@@ -77,10 +77,10 @@ uint32_t ST7789_kbv::readReg32(uint16_t reg)
 uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx) //this is the same as Adafruit_ILI9341
 {
     uint8_t SPIREAD_CMD = (_lcd_ID == 0x9341) ? 0xD9 : 0xFB;
-    uint8_t SPIREAD_EN  = (_lcd_ID == 0x9341) ? 0x10 : 0x80;
+    uint8_t SPIREAD_EN  = (_lcd_ID == 0x9488) ? 0x80 : 0x10; //9341, 7796 use 0x10
     uint8_t off = 0;
     uint8_t ret;
-    bool is_sekret = (_lcd_ID == 0x9341 || _lcd_ID == 0x9488);
+    bool is_sekret = (_lcd_ID == 0x9341 || _lcd_ID == 0x9488 || _lcd_ID == 0x7796);
     SPIREAD_EN |= idx;
     if (is_sekret) pushCommand(SPIREAD_CMD, &SPIREAD_EN, 1); //special for 9341, 9488
     WriteCmd(reg);
@@ -97,7 +97,7 @@ uint16_t ST7789_kbv::readID(void)                          //{ return 0x9341; }
 
 uint16_t ST7789_kbv::readReg(uint16_t reg, uint8_t idx)
 {
-    if (_lcd_ID != 0x9341 && _lcd_ID != 0x9488) return 0x1234;
+    if (_lcd_ID != 0x9341 && _lcd_ID != 0x9488 && _lcd_ID != 0x7796) return 0x1234;
     uint8_t h, l;
     idx <<= 1;
     h = readcommand8(reg, idx);
@@ -115,7 +115,14 @@ int16_t ST7789_kbv::readGRAM(int16_t x, int16_t y, uint16_t * block, int16_t w, 
 #endif
     setAddrWindow(x, y, x + w - 1, y + h - 1);
     WriteCmd(0x2E);
-    if (_lcd_ID == 0x9341 || _lcd_ID == 0x9488) {
+    if (_lcd_ID == 0x7796 && use_666 == 0) {
+        r = xchg8(0xFF);
+        while (n-- > 0) {
+            r = xchg8(0xFF);
+            g = xchg8(0xFF);
+            *block++ = (r << 8) | (g);
+        }
+    } else if (_lcd_ID == 0x9341 || _lcd_ID == 0x9488 || _lcd_ID == 0x7796) {
         r = xchg8(0xFF);
         while (n-- > 0) {
             r = xchg8(0xFF);
@@ -491,6 +498,41 @@ static const uint8_t ST7789_regValues[] PROGMEM = {
     //    (0xE1), 14, 0xD0, 0x00, 0x05, 0x0D, 0x0C, 0x06, 0x2D, 0x44, 0x40, 0x0E, 0x1C, 0x18, 0x16, 0x19,     //NVGAMCTRL: Negative Voltage Gamma control
 };
 
+static const uint8_t PROGMEM ST7796_regValues[] = {
+    //  (COMMAND_BYTE), n, data_bytes....
+//    0xC0, 2, 0x10, 0x10,        //Power Control 1 [80 25]
+//    0xC1, 1, 0x41,              //Power Control 2 [13]
+    0xC5, 1, 0x1C,              //VCOM  Control 1 [1C]
+//    0x36, 1, 0x68,              //Memory Access [00]
+    0xB0, 1, 0x00,              //Interface     [00]
+//    0xB1, 2, 0xB0, 0x11,        //Frame Rate Control [A0 10]
+    0xB4, 1, 0x01,              //Inversion Control [01]
+    0xB6, 3, 0x80, 0x22, 0x3B,  // Display Function Control [80 02 3B] .kbv SS=1, NL=480
+    0xB7, 1, 0x06,              //Entry Mode      [06]
+//    0xE8, 8, 0x40, 0x8A, 0x00, 0x00, 0x25, 0x0A, 0x38, 0x33,   //Adjustment Control 3 [40 8A 00 00 25 0A 38 33]
+};
+
+static const uint8_t PROGMEM ST7796_regValues_ESP[] = {
+    //  (COMMAND_BYTE), n, data_bytes....
+    0xF0, 1, 0xC3,
+    0xF0, 1, 0x96,
+    0x36, 1, 0x48,
+    0x3A, 1, 0x05,              //Interlace Pixel Format [XX]
+    0xB4, 1, 0x01,              //Inversion Control [01]
+    0xB6, 3, 0x20, 0x02, 0x3B,  // Display Function Control [80 02 3B]
+    0xE8, 8, 0x40, 0x8A, 0x00, 0x00, 0x29, 0x19, 0xA5, 0x33,   //Adjustment Control 3 [40 8A 00 00 25 0A 38 33]
+    0xC1, 1, 0x06,              //Power Control 2 [13]
+    0xC2, 1, 0xA7,              //Power Control 3 [A?]
+    0xC5, 1, 0x18,              //VCOM=0.9 [1C]
+    TFTLCD_DELAY8, 120,
+    (0xE0), 14, 0xF0, 0x09, 0x0B, 0x06, 0x04, 0x15, 0x2F, 0x54, 0x42, 0x3C, 0x17, 0x14, 0x18, 0x1B,     //PVGAMCTRL: Positive Voltage Gamma control
+    (0xE1), 14, 0xE0, 0x09, 0x0B, 0x06, 0x04, 0x03, 0x2B, 0x43, 0x42, 0x3B, 0x16, 0x14, 0x17, 0x1B,     //NVGAMCTRL: Negative Voltage Gamma control
+    TFTLCD_DELAY8, 120,
+    
+    0xF0, 1, 0x69,
+    0xF0, 1, 0x3C,
+};
+
 static const uint8_t ILI9341_regValues_2_4[] PROGMEM = {   // BOE 2.4"
     0xCF, 3, 0x00, 0x81, 0x30,  //Power Control B [00 81 30]
     0xED, 4, 0x64, 0x03, 0x12, 0x81,    //Power On Seq [55 01 23 01]
@@ -530,7 +572,7 @@ static const uint8_t ILI9481_RGB_regValues[] PROGMEM = {    // 320x480
     0xB3, 4, 0x00, 0x01, 0x06, 0x30,  //jpegs example
 };
 
-const uint8_t PROGMEM ILI9488_regValues_kbv[] = {
+static const uint8_t PROGMEM ILI9488_regValues_kbv[] = {
     //  (COMMAND_BYTE), n, data_bytes....
     0xC0, 2, 0x10, 0x10,        //Power Control 1 [0E 0E]
     0xC1, 1, 0x41,              //Power Control 2 [43]
@@ -636,7 +678,7 @@ void ST7789_kbv::begin(uint16_t ID)
 {
     const uint8_t *table;
     int size;
-    _lcd_ID = ID;
+    if (ID == 0) _lcd_ID = ID;           //defaults to constructor ID
     use_666 = USE_666;
     _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;  //default MIPI registers
     switch (ID) {
@@ -662,6 +704,10 @@ void ST7789_kbv::begin(uint16_t ID)
         case 0x7789:
             table = ST7789_regValues;
             size = sizeof(ST7789_regValues);
+            break;
+        case 0x7796:
+            table = ST7796_regValues;
+            size = sizeof(ST7796_regValues);
             break;
         case 0x9101:
             //if (_lcd_xor == 0xFF) _lcd_xor = 0xD0;  //wrong ROT
