@@ -25,7 +25,8 @@
 #include <SPI.h>
 
 #if 0
-#elif defined(__AVR__) || defined(CORE_TEENSY)
+#elif (defined(__AVR__) || defined(CORE_TEENSY)) && !defined(__IMXRT1062__) 
+#warning RWREG_8_t
 typedef uint8_t RWREG_t;
 #elif defined(__arm__) || defined(ESP8266) || defined(ESP32)
 typedef uint32_t RWREG_t;
@@ -217,7 +218,14 @@ static inline void write24_N(uint16_t color, int16_t n)
 #define write16(x) { write16_N(x, 1); }
 static inline void write8_block(uint8_t *buf, int n)
 {
+#if defined(ESP8266) || defined(ESP32)
+    SPI.writeBytes(buf, n);
+#elif defined(ARDUINO_ARCH_STM32)
+    uint8_t dummy[n];
+    SPI.transfer(buf, dummy, n); 
+#else
     while (n--) WriteDat(*buf++);
+#endif
 }
 static void INIT(void)
 {
