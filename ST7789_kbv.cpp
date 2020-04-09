@@ -678,10 +678,10 @@ void ST7789_kbv::begin(uint16_t ID)
 {
     const uint8_t *table;
     int size;
-    if (ID == 0) _lcd_ID = ID;           //defaults to constructor ID
+    if (ID != 0) _lcd_ID = ID;           //defaults to constructor ID
     use_666 = USE_666;
     _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;  //default MIPI registers
-    switch (ID) {
+    switch (_lcd_ID) {                   //use the valid ID
 #ifdef SUPPORT_1283
         case 0x1283:
             table = SSD1283A_regValues;
