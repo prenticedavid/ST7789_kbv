@@ -3,7 +3,7 @@
 
 #include "ST7789_kbv.h"
 
-#define USE_MODE  SPI_MODE3
+#define USE_MODE  SPI_MODE0
 #define USE_9BIT  0
 #define USE_SPI   1
 #define USE_666   0       //565 or 666
@@ -84,6 +84,7 @@ uint8_t ST7789_kbv::readcommand8(uint8_t reg, uint8_t idx) //this is the same as
     SPIREAD_EN |= idx;
     if (is_sekret) pushCommand(SPIREAD_CMD, &SPIREAD_EN, 1); //special for 9341, 9488
     WriteCmd(reg);
+    delay(1);
     ret = xchg8(0xFF);                       //only safe to read @ SCK=16MHz
     if (is_sekret) pushCommand(SPIREAD_CMD, &off, 1);        //ILI9488 MUST disable afterwards
     return ret;
@@ -156,6 +157,8 @@ static const uint8_t PROGMEM mactable[] = {
 void ST7789_kbv::setRotation(uint8_t r)
 {
     uint8_t mac, madctl = 0x36, ofs = 0;;
+    pushCommand(0x00, NULL, 0);   //.kbv kill any sequence
+    pushCommand(0x00, NULL, 0);   //.kbv kill any sequence
     Adafruit_GFX::setRotation(r & 3);
     if (_lcd_ID == 0x9481) ofs = 4;
     if (is1351) {
@@ -213,6 +216,9 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
     // ILI934X just plots at edge if you try to write outside of the box:
     if (x < 0 || y < 0 || x >= width() || y >= height())
         return;
+#if 1
+    setAddrWindow(x, y, x, y);
+#else
     bool is_9488 = (_lcd_ID == 0x9488);
     if (_xofs) x += _xofs;
     if (_yofs) y += _yofs;
@@ -240,6 +246,7 @@ void ST7789_kbv::drawPixel(int16_t x, int16_t y, uint16_t color)
         else { write8(y); write8(x); }
     }
 #endif
+#endif
     WriteCmd(_MW);
     writeColor(color, 1);
     FLUSH_IDLE;
@@ -249,6 +256,19 @@ void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
 {
     if (_xofs) x += _xofs, x1 += _xofs;
     if (_yofs) y += _yofs, y1 += _yofs;
+#if 1
+    uint8_t block[4];
+    block[0] = x >> 8;
+    block[1] = x & 0xFF;
+    block[2] = x1 >> 8;
+    block[3] = x1 & 0xFF;
+    WriteCmd(_MC); write8_block(block, 4);
+    block[0] = y >> 8;
+    block[1] = y & 0xFF;
+    block[2] = y1 >> 8;
+    block[3] = y1 & 0xFF;
+    WriteCmd(_MP); write8_block(block, 4);
+#else
 #ifdef SUPPORT_9225
     if (_lcd_ID == 0x1283 && (_drvout & 0x0100) != 0) { //broken RL
         int16_t t;
@@ -276,6 +296,7 @@ void ST7789_kbv::setAddrWindow(int16_t x, int16_t y, int16_t x1, int16_t y1)
         if (rotation & 1) { write8(x); write8(y); }
         else { write8(y); write8(x); }
     }
+#endif
 #endif
     FLUSH_IDLE;
 }
@@ -326,6 +347,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
     if (first) {
         WriteCmd(cmd);
     }
+    else if (_lcd_ID == 0x7796) WriteCmd(0x3C);
     if (!isconst && !use_666) {
         uint16_t *block16 = (uint16_t*)block;
         int i = n;
@@ -349,6 +371,7 @@ void ST7789_kbv::pushColors_any(uint16_t cmd, uint8_t * block, int16_t n, bool f
             writeColor(color, 1);
         }
     FLUSH_IDLE;
+    if (_lcd_ID == 0x7796) WriteCmd(0x00);
 }
 
 void ST7789_kbv::pushColors(uint16_t * block, int16_t n, bool first)
@@ -471,6 +494,44 @@ static const uint8_t PROGMEM table7735S[] = {
     0xC5, 1, 0x0E,              // [05] VMCTR1 VCOM
 };
 
+static const uint8_t PROGMEM GC9102_regValues[] = {
+    //  (COMMAND_BYTE), n, data_bytes....
+ (0xfe), 0,
+ (0xef), 0,
+ (0xb4), 1,0x00,
+/*---------------------------end display control setting-------------------------*/
+/*-------------------------Power Control Registers Initial---------------------*/
+ (0xa8), 3,0x02,0x00,0x00,
+ (0xa7), 1,0x02,
+ (0xea), 1,0x3a,
+ (0xb4), 1,0x00,
+ (0xff), 1,0x13,
+ (0xfd), 1,0x10,
+ (0xa4), 1,0x09,
+ (0xe7), 2,0x94,0x88,
+ (0xed), 1,0x11,
+ (0xe4), 1,0xc5,
+ (0xe2), 1,0x80,
+ (0xa3), 1,0x09,
+ (0xe3), 1,0x07,
+ (0xe5), 1,0x10,
+/*-----------------------end Power Control Registers Initial--------------------*/
+/*------------------------------------gamma setting-------------------------------*/
+ (0xf0), 1,0x03,
+ (0xf1), 1,0x00,
+ (0xf2), 1,0x00,
+ (0xf3), 1,0x44,
+ (0xf4), 1,0x00,
+ (0xf5), 1,0x0c,
+ (0xf7), 1,0x47,
+ (0xf8), 1,0x00,
+ (0xf9), 1,0x60,
+ (0xfa), 1,0x22,
+ (0xfb), 1,0x04,
+ (0xfc), 1,0x00,
+/*---------------------------------end gamma setting------------------------------*/
+};
+
 static const uint8_t PROGMEM table9163C[] = {
     //  (COMMAND_BYTE), n, data_bytes....
     0x26, 1, 0x02,              // [01] GAMMASET use CURVE=1, 2, 4, 8
@@ -504,12 +565,13 @@ static const uint8_t PROGMEM ST7796_regValues[] = {
 //    0xC1, 1, 0x41,              //Power Control 2 [13]
     0xC5, 1, 0x1C,              //VCOM  Control 1 [1C]
 //    0x36, 1, 0x68,              //Memory Access [00]
-    0xB0, 1, 0x00,              //Interface     [00]
+    0xB0, 1, 0x80,              //Interface     [00]
 //    0xB1, 2, 0xB0, 0x11,        //Frame Rate Control [A0 10]
     0xB4, 1, 0x01,              //Inversion Control [01]
     0xB6, 3, 0x80, 0x22, 0x3B,  // Display Function Control [80 02 3B] .kbv SS=1, NL=480
-    0xB7, 1, 0x06,              //Entry Mode      [06]
+    0xB7, 1, 0xC6,              //Entry Mode      [06]
 //    0xE8, 8, 0x40, 0x8A, 0x00, 0x00, 0x25, 0x0A, 0x38, 0x33,   //Adjustment Control 3 [40 8A 00 00 25 0A 38 33]
+    0xE8, 8, 0x40, 0x8A, 0x00, 0x00, 0x29, 0x19, 0xA5, 0x33,
 };
 
 static const uint8_t PROGMEM ST7796_regValues_ESP[] = {
@@ -578,7 +640,7 @@ static const uint8_t PROGMEM ILI9488_regValues_kbv[] = {
     0xC1, 1, 0x41,              //Power Control 2 [43]
     0xC5, 4, 0x00, 0x22, 0x80, 0x40,    //VCOM  Control 1 [00 40 00 40]
     0x36, 1, 0x68,              //Memory Access [00]
-    0xB0, 1, 0x00,              //Interface     [00]
+    0xB0, 1, 0x80,              //Interface     [00]
     0xB1, 2, 0xB0, 0x11,        //Frame Rate Control [B0 11]
     0xB4, 1, 0x02,              //Inversion Control [02]
     0xB6, 3, 0x02, 0x22, 0x3B,  // Display Function Control [02 02 3B] .kbv SS=1, NL=480
@@ -713,6 +775,10 @@ void ST7789_kbv::begin(uint16_t ID)
             //if (_lcd_xor == 0xFF) _lcd_xor = 0xD0;  //wrong ROT
             table = table7735S;
             size = sizeof(table7735S);
+            break;
+        case 0x9102:
+            table = GC9102_regValues;
+            size = sizeof(GC9102_regValues);
             break;
         case 0x9163:
             if (_lcd_xor == 0xFF) _lcd_xor = 0x40;
