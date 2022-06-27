@@ -25,7 +25,8 @@
 #include <SPI.h>
 
 #if 0
-#elif defined(__AVR__) || defined(CORE_TEENSY)
+#elif (defined(__AVR__) || defined(CORE_TEENSY)) && !defined(__IMXRT1062__) 
+#warning RWREG_8_t
 typedef uint8_t RWREG_t;
 #elif defined(__arm__) || defined(ESP8266) || defined(ESP32)
 typedef uint32_t RWREG_t;
@@ -34,12 +35,12 @@ typedef uint32_t RWREG_t;
 #endif
 
 //8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
-static SPISettings settings(12000000, MSBFIRST, USE_MODE); 
+static SPISettings settings(8000000, MSBFIRST, USE_MODE); 
 
 static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
 static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
 
-#if 1
+#if 0
 #define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
 #define PIN_HIGH(p, b)       *spi ## p ## Port |= spi ## p ## PinSet
 #define PIN_READ(p, b)       (*spi ## p ## Port & spi ## p ## PinSet)
@@ -65,6 +66,13 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define NO_CS_PIN D7
 #define MOSI_PIN  D11
 #define SCK_PIN   D13
+#elif defined(ARDUINO_RASPBERRY_PI_PICO)
+#define RESET_PIN 18
+#define CD_PIN    19
+#define CS_PIN    21
+#define NO_CS_PIN 13
+#define MOSI_PIN  3
+#define SCK_PIN   2
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
@@ -107,7 +115,29 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 
 #define FLUSH_IDLE { FLUSH(); CS_IDLE; }
 
+#if defined(ARDUINO_ARDUINO_NANO33BLE)
+#define USE_NANO33BLE 1
+#endif
 #if 0
+#elif defined(ARDUINO_RASPBERRY_PI_PICO)
+#define WRITE8(x)   { while( !spi_is_writable(spi0)) ; spi_get_hw(spi0)->dr = x; }
+#define XCHG8(x,c)  { WRITE8(x);while( !(spi_is_readable(spi0))) ; c = spi_get_hw(spi0)->dr; }
+#define FLUSH() {}  { while(spi_get_hw(spi0)->sr & SPI_SSPSR_BSY_BITS) ; while(spi_is_readable(spi0)) spi_get_hw(spi0)->dr; }
+#elif USE_NANO33BLE == 1
+#warning ARDUINO_ARDUINO_NANO33BLE WRITE8
+#define NOP1 asm("nop")
+#define NOP2 { NOP1; NOP1; }
+#define NOP4 { NOP2; NOP2; }
+#define NOP8 { NOP4; NOP4; }
+#define NOP16 { NOP8; NOP8; }
+#define NOP32 { NOP16; NOP16; }
+#define NOP64 { NOP32; NOP32; }
+#define NOPXX { NOP32; NOP8; NOP8; }  // delay works with 8MHz. NOP48 might be safer.
+#define SPIX        NRF_SPI2    //chip is 8MHz max.  add delays before checking READY.
+#define WRITE8(x)   { SPIX->TXD = x; NOPXX; while( !(SPIX->EVENTS_READY)) ; SPIX->RXD; }
+#define XCHG8(x,c)  { if (SPIX->FREQUENCY != 0x8000000) SPIX->FREQUENCY = 0x80000000; SPIX->TXD = x; NOPXX; while( !(SPIX->EVENTS_READY)) ; c = SPIX->RXD; CS_ACTIVE; }
+//#define XCHG8(x,c)  { c = SPI.transfer(x); }
+#define FLUSH()     { }
 #elif defined(__AVR_ATmega328P__)
 #define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
 #define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
@@ -180,8 +210,19 @@ static inline void write16_N(uint16_t x, int16_t n)
     hilo[0] = color >> 8;
     hilo[1] = color;
     SPI.writePattern(hilo, 2, (uint32_t)n);
+#elif USE_NANO33BLE == 2
+    uint8_t h = x >> 8, l = x;
+    uint8_t buf[32], trashed[32];
+    for (int i = 0; i < 32 && i < n * 2; ) { buf[i++] = h; buf[i++] = l; }
+    while (n) {
+        int cnt = n;
+        if (cnt > 16) cnt = 16;
+        memcpy(trashed, buf, cnt * 2); //dummy[] gets trashed by stupid Arduino method.
+        SPI.transfer(trashed, cnt * 2);
+        n -= cnt;
+    }
 #else
-    uint8_t h = x >> 8, l = x, dummy;
+    uint8_t h = x >> 8, l = x;
     WRITE8(h);
     while (--n) {
         WRITE8(l);
@@ -199,6 +240,17 @@ static inline void write24_N(uint16_t color, int16_t n)
     rgb[1] = color >> 3;
     rgb[2] = color << 3;
     SPI.writePattern(rgb, 3, (uint32_t)n);
+#elif USE_NANO33BLE == 2
+    uint8_t r = color >> 8, g = (color >> 3), b = color << 3;
+    uint8_t buf[48], trashed[48];
+    for (int i = 0; i < 48 && i < n * 3; ) { buf[i++] = r; buf[i++] = g; buf[i++] = b; }
+    while (n) {
+        int cnt = n;
+        if (cnt > 16) cnt = 16;
+        memcpy(trashed, buf, cnt * 3); //dummy[] gets trashed by stupid Arduino method.
+        SPI.transfer(trashed, cnt * 3);
+        n -= cnt;
+    }
 #else
     uint8_t r = color >> 8, g = (color >> 3), b = color << 3, dummy;
     WRITE8(r);
@@ -217,10 +269,22 @@ static inline void write24_N(uint16_t color, int16_t n)
 #define write16(x) { write16_N(x, 1); }
 static inline void write8_block(uint8_t *buf, int n)
 {
+#if defined(ESP8266) || defined(ESP32)
+    SPI.writeBytes(buf, n);
+#elif defined(ARDUINO_ARCH_STM32)
+    uint8_t dummy[n];
+    SPI.transfer(buf, dummy, n); 
+#elif USE_NANO33BLE == 2
+    uint8_t dummy[n];
+    memcpy(dummy, buf, n);
+    SPI.transfer(dummy, n); 
+#else
     while (n--) WriteDat(*buf++);
+#endif
 }
 static void INIT(void)
 {
+#if !defined(ARDUINO_ARCH_MBED)    
     spicsPort = portOutputRegister(digitalPinToPort(CS_PIN));
     spicsPinSet = digitalPinToBitMask(CS_PIN);
     spicdPort = portOutputRegister(digitalPinToPort(CD_PIN));
@@ -231,6 +295,7 @@ static void INIT(void)
     spiclkPinSet = digitalPinToBitMask(SCK_PIN);
     spirstPort = portOutputRegister(digitalPinToPort(RESET_PIN));
     spirstPinSet = digitalPinToBitMask(RESET_PIN);
+#endif
     CS_IDLE;
     RESET_IDLE;
     CS_OUTPUT;
@@ -247,4 +312,5 @@ static void INIT(void)
     SPI.endTransaction();  //ESP32 seems to require this
     SPI.begin();
     SPI.beginTransaction(settings);
+    SPI.transfer(0);
 }

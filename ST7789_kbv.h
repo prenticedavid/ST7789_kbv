@@ -1,7 +1,7 @@
 #ifndef ST7789_KBV_H_
 #define ST7789_KBV_H_ 102
 
-#define USE_MBED defined(__MBED__)
+#define USE_MBED defined(____MBED__)
 //#define USE_NO_CS
 
 #if ARDUINO < 165
@@ -30,7 +30,7 @@ class ST7789_kbv : public Adafruit_GFX {
 #endif
     public:
         void     reset(void);                                       // you only need the constructor
-        void     begin(uint16_t ID = 0x7789);                       // you only need the constructor
+        void     begin(uint16_t ID = 0);                       // defaults to constructor ID
         virtual void  drawPixel(int16_t x, int16_t y, uint16_t color);  // and these three
         void     pushCommand(uint16_t cmd, uint8_t * block, int8_t N);
         uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
@@ -59,7 +59,8 @@ class ST7789_kbv : public Adafruit_GFX {
 
     private:
         uint8_t  _lcd_xor, _MC, _MP, _MW;
-        uint16_t _lcd_ID, __OFFSET;
+        uint16_t _lcd_ID;
+        uint16_t __OFFSET, _xofs, _yofs;
 };
 
 // New color definitions.  thanks to Bodmer
