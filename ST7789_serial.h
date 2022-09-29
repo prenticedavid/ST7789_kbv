@@ -73,6 +73,20 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define NO_CS_PIN 13
 #define MOSI_PIN  3
 #define SCK_PIN   2
+#elif defined(__AVR_AVR128DA48__) //Curiosity
+#define CD_PIN     9         //PB1
+#define CS_PIN     7         //PA7
+#define RESET_PIN  8         //PB0
+#define SD_PIN     12        //PB4
+#define MOSI_PIN   6
+#define SCK_PIN    4
+#elif defined(__AVR_AVR128DB48__) //Curiosity
+#define CD_PIN     17        //PC1
+#define CS_PIN     7         //PA7
+#define RESET_PIN  8         //PC0
+#define SD_PIN     20        //PC4
+#define MOSI_PIN   6         //PA6
+#define SCK_PIN    4         //PA4
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
@@ -142,7 +156,7 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define WRITE8(x)   { SPDR = x; while ((SPSR & 0x80) == 0) ; }
 #define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
 #define FLUSH()     { while (SPSR & 0x80) SPDR; }
-#elif defined(ARDUINO_AVR_NANO_EVERY)
+#elif defined(ARDUINO_AVR_NANO_EVERY) || defined(ARDUINO_ARCH_MEGAAVR)
 #define WRITE8(x)   { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; }
 #define XCHG8(x,c)  { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; c = SPI0_DATA; }
 #define FLUSH()     { while (SPI0_INTFLAGS & 0x80) SPI0_DATA; }
@@ -172,7 +186,7 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #if 0
 #elif defined(ARDUINO_AVR_NANO_EVERY)
 #define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN; SCK_OUTPUT;}
-#elif defined(AVR)
+#elif defined(SPCR)
 #define SDIO_INMODE()  {SPCR = 0; MOSI_IN; SCK_OUTPUT;}
 #else
 #define SDIO_INMODE()  {SPI.endTransaction(); MOSI_IN;SCK_OUTPUT;}
