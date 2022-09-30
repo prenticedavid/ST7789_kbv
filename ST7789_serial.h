@@ -78,15 +78,15 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define CS_PIN     7         //PA7
 #define RESET_PIN  8         //PB0
 #define SD_PIN     12        //PB4
-#define MOSI_PIN   6
-#define SCK_PIN    4
+#define MOSI_PIN   4         //PA4
+#define SCK_PIN    6         //PA6
 #elif defined(__AVR_AVR128DB48__) //Curiosity
 #define CD_PIN     17        //PC1
 #define CS_PIN     7         //PA7
 #define RESET_PIN  8         //PC0
 #define SD_PIN     20        //PC4
-#define MOSI_PIN   6         //PA6
-#define SCK_PIN    4         //PA4
+#define MOSI_PIN   4         //PA4
+#define SCK_PIN    6         //PA6
 #else
 #define RESET_PIN 8
 #define CD_PIN    9
