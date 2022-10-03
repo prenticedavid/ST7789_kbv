@@ -36,9 +36,11 @@ typedef uint32_t RWREG_t;
 
 //8MHz is max for Saleae. 12MHz is max for ILI9481.  MODE0 reads better
 static SPISettings settings(8000000, MSBFIRST, USE_MODE); 
-
 static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
 static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
+static uint8_t running;
+
+#define USE_BUFEN 1
 
 #if 0
 #define PIN_LOW(p, b )       *spi ## p ## Port &= ~spi ## p ## PinSet
@@ -67,12 +69,12 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define MOSI_PIN  D11
 #define SCK_PIN   D13
 #elif defined(ARDUINO_RASPBERRY_PI_PICO)
-#define RESET_PIN 18
-#define CD_PIN    19
-#define CS_PIN    21
-#define NO_CS_PIN 13
-#define MOSI_PIN  3
-#define SCK_PIN   2
+#define RESET_PIN 6 //18
+#define CD_PIN    7 //19
+#define CS_PIN    17 //21
+#define NO_CS_PIN 13 //13
+#define MOSI_PIN  19 //3
+#define SCK_PIN   18 //2
 #elif defined(__AVR_AVR128DA48__) //Curiosity
 #define CD_PIN     9         //PB1
 #define CS_PIN     7         //PA7
@@ -105,8 +107,8 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define CD_COMMAND PIN_LOW(cd, CD_PIN)
 #define CD_DATA    PIN_HIGH(cd, CD_PIN)
 #define CD_OUTPUT  PIN_OUTPUT(cd, CD_PIN)
-#define CS_ACTIVE  PIN_LOW(cs, CS_PIN);
-#define CS_IDLE    PIN_HIGH(cs, CS_PIN);
+#define CS_ACTIVE  PIN_LOW(cs, CS_PIN)
+#define CS_IDLE    PIN_HIGH(cs, CS_PIN)
 #define CS_OUTPUT  PIN_OUTPUT(cs, CS_PIN)
 #define RESET_ACTIVE  PIN_LOW(rst, RESET_PIN)
 #define RESET_IDLE    PIN_HIGH(rst, RESET_PIN)
@@ -132,6 +134,7 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #if defined(ARDUINO_ARDUINO_NANO33BLE)
 #define USE_NANO33BLE 1
 #endif
+
 #if 0
 #elif defined(ARDUINO_RASPBERRY_PI_PICO)
 #define WRITE8(x)   { while( !spi_is_writable(spi0)) ; spi_get_hw(spi0)->dr = x; }
@@ -157,9 +160,17 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define XCHG8(x,c)  { SPDR = x; while ((SPSR & 0x80) == 0) ; c = SPDR; }
 #define FLUSH()     { while (SPSR & 0x80) SPDR; }
 #elif defined(ARDUINO_AVR_NANO_EVERY) || defined(ARDUINO_ARCH_MEGAAVR)
-#define WRITE8(x)   { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; }
-#define XCHG8(x,c)  { SPI0_DATA = x; while ((SPI0_INTFLAGS & 0x80) == 0) ; c = SPI0_DATA; }
-#define FLUSH()     { while (SPI0_INTFLAGS & 0x80) SPI0_DATA; }
+#if USE_BUFEN == 1
+#define WRITE8(x)   { SPI0_INTFLAGS = SPI_TXCIF_bm; while ((SPI0_INTFLAGS & SPI_DREIF_bm) == 0) ; SPI0_DATA = x; running = 1; }
+#define XCHG8(x,c)  { WRITE8(x); while ((SPI0_INTFLAGS & SPI_RXCIF_bm) == 0) ; c = SPI0_DATA; }
+#define FLUSH()     { if (running) while (!(SPI0_INTFLAGS & SPI_TXCIF_bm)) ;\
+                      while (SPI0_INTFLAGS & SPI_RXCIF_bm) SPI0_DATA;\
+					  running = 0; }
+#else
+#define WRITE8(x)   { SPI0_DATA = x; while ((SPI0_INTFLAGS & SPI_RXCIF_bm) == 0) ; }
+#define XCHG8(x,c)  { WRITE8(x); c = SPI0_DATA; }
+#define FLUSH()     { while (SPI0_INTFLAGS & SPI_RXCIF_bm) SPI0_DATA; }
+#endif
 #elif defined(_ARDUINO_ARCH_STM32)
 #warning ARDUINO_ARCH_STM32 WRITE8
 #define WRITE8(x)   { while( !(SPI1->SR & SPI_SR_TXE)) ; *(uint8_t *)&SPI1->DR = x; }
@@ -172,7 +183,7 @@ static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPin
 #define FLUSH()     { while(SERCOM4->SPI.INTFLAG.bit.TXC == 0) ; while(SERCOM4->SPI.INTFLAG.bit.RXC) SERCOM4->SPI.DATA.bit.DATA; }
 #elif defined(ARDUINO_SAM_DUE)  //write is ok.  read fails
 #warning ARDUINO_SAM_DUE
-#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = x | SPI_PCS(3); }
+#define WRITE8(x)   { while((SPI0->SPI_SR & SPI_SR_TDRE) == 0) ; SPI0->SPI_TDR = (x) | SPI_PCS(3); }
 #define XCHG8(x,c)  { WRITE8(x);while((SPI0->SPI_SR & SPI_SR_RDRF) == 0) ; c = SPI0->SPI_RDR; }
 #define FLUSH()     { while((SPI0->SPI_SR & SPI_SR_TXEMPTY) == 0) ; while(SPI0->SPI_SR & SPI_SR_RDRF) SPI0->SPI_RDR; }
 #else
@@ -278,7 +289,7 @@ static inline void write24_N(uint16_t color, int16_t n)
     FLUSH();
 #endif
 }
-#define WriteCmd(cmd) { CD_COMMAND; CS_ACTIVE; xchg8(cmd); CD_DATA; }
+#define WriteCmd(cmd) { FLUSH(); CD_COMMAND; CS_ACTIVE; xchg8(cmd); CD_DATA; }
 #define WriteDat(dat) { write8(dat); }
 #define write16(x) { write16_N(x, 1); }
 static inline void write8_block(uint8_t *buf, int n)
@@ -327,4 +338,7 @@ static void INIT(void)
     SPI.begin();
     SPI.beginTransaction(settings);
     SPI.transfer(0);
+#if defined(ARDUINO_ARCH_MEGAAVR) && USE_BUFEN != 0
+    SPI0_CTRLB |= 0xC0;
+#endif
 }
