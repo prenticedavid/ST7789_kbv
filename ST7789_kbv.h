@@ -1,7 +1,9 @@
 #ifndef ST7789_KBV_H_
 #define ST7789_KBV_H_ 102
 
-#define USE_MBED defined(____MBED__)
+#if defined(____MBED__)
+#define USE_MBED 1
+#endif
 //#define USE_NO_CS
 
 #if ARDUINO < 165

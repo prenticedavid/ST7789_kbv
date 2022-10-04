@@ -38,7 +38,6 @@ typedef uint32_t RWREG_t;
 static SPISettings settings(8000000, MSBFIRST, USE_MODE); 
 static volatile RWREG_t *spicsPort, *spicdPort, *spimosiPort, *spiclkPort, *spirstPort;
 static RWREG_t  spicsPinSet, spicdPinSet, spimosiPinSet, spiclkPinSet, spirstPinSet;
-static uint8_t running;
 
 #define USE_BUFEN 1
 
@@ -161,6 +160,7 @@ static uint8_t running;
 #define FLUSH()     { while (SPSR & 0x80) SPDR; }
 #elif defined(ARDUINO_AVR_NANO_EVERY) || defined(ARDUINO_ARCH_MEGAAVR)
 #if USE_BUFEN == 1
+static uint8_t running;
 #define WRITE8(x)   { SPI0_INTFLAGS = SPI_TXCIF_bm; while ((SPI0_INTFLAGS & SPI_DREIF_bm) == 0) ; SPI0_DATA = x; running = 1; }
 #define XCHG8(x,c)  { WRITE8(x); while ((SPI0_INTFLAGS & SPI_RXCIF_bm) == 0) ; c = SPI0_DATA; }
 #define FLUSH()     { if (running) while (!(SPI0_INTFLAGS & SPI_TXCIF_bm)) ;\
