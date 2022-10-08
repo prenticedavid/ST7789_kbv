@@ -738,8 +738,8 @@ static void init_table(const void *table, int16_t size)
 
 void ST7789_kbv::begin(uint16_t ID)
 {
-    const uint8_t *table;
-    int size;
+    const uint8_t *table = NULL;
+    int size = 0;
     if (ID != 0) _lcd_ID = ID;           //defaults to constructor ID
     use_666 = USE_666;
     _MC = 0x2A, _MP = 0x2B, _MW = 0x2C;  //default MIPI registers
