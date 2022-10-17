@@ -1,7 +1,7 @@
 //No, calling begin(), beginTransaction(4MHz, ...) does not fix C7789 speed
 //A7789: edit Adafruit_ST77xx.cpp for SPI_DEFAULT_FREQ
 //C7789: edit Fast_ILI9341.h / Arduino_Fast_ST7789.h for SPI_DEFAULT_FREQ
-#define MAX_SPICLOCK 8000000  //Saleae must be <= 8MHz. 9341 will work up to 42MHz
+//#define MAX_SPICLOCK 8000000  //Saleae must be <= 8MHz. 9341 will work up to 42MHz
 
 // Edit for appropriate pins
 
