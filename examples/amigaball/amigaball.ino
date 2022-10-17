@@ -22,6 +22,7 @@
 #define ORIENTATION 0    //Portrait=0, Landscape=1, ...
 #define USE_BIGBALL 0    //Bodmer's image is 100 vs 64
 #define SHADOW      20
+#define MAX_SPICLOCK 8000000  //Saleae must be <= 8MHz. 9341 will work up to 42MHz
 
 /*
  ILI9341 240x320 2.2" LCD pinout (header at the top, from left):
@@ -101,11 +102,12 @@ void drawBall(int x, int y)
         int yy = y + j;
         //redraw the whole background line in the buffer.   when we only need oldx
         if (yy && ((yy - LINE_YS) % GRID) == 0) { //draw horiz graticule
-            for (i = 0; i < LINE_XS1; i++) line[i] = line[SCR_WD - 1 - i] = bgCol;
-            for (i = 0; i <= SCR_WD - LINE_XS1 * 2; i++) line[i + LINE_XS1] = lineCol;
+            for (i = oldx; i < oldx + wid; i++) line[i] = lineCol;
+            for (i = oldx; i < LINE_XS1; i++) line[i] = bgCol;  //tidy up LHS
+            for (i = SCR_WD - LINE_XS1 + 1; i < oldx + wid && i < SCR_WD; i++) line[i] = bgCol;  //tidy up RHS
         } else { //draw vert graticule
-            for (i = 0; i < SCR_WD; i++) line[i] = bgCol;
-            if (yy > LINE_YS) for (i = 0; i < vlines; i++) line[LINE_XS1 + i * GRID] = lineCol;
+            for (i = oldx; i < oldx + wid; i++) line[i] = bgCol;
+            if (yy > LINE_YS) for (i = LINE_XS1; i <= SCR_WD - LINE_XS1; i += GRID) line[i] = lineCol;
         }
         if (j < BALL_HT) {
             uint8_t inball = 0, vv = 0;
